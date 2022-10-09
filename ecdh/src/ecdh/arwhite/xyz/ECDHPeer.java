@@ -149,17 +149,7 @@ public class ECDHPeer {
 		return new String(plainText);
 	}
 	
-	private void play() 
-			throws NoSuchAlgorithmException, NoSuchProviderException, 
-			InvalidKeyException, CertificateException, SignatureException, IOException {
-		
-		CertAndKeyGen certGen = new CertAndKeyGen("RSA","SHA256WithRSA",null);
-		X509Certificate cert = certGen.getSelfCertificate(
-				new X500Name("CN=My App,O=My Org,L=My City,C=GB"),
-				0);
-		
-		
-	}
+
 
 	
 }
