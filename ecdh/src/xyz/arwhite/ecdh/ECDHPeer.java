@@ -14,6 +14,7 @@ import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
+import java.security.Signature;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -45,7 +46,7 @@ import sun.security.x509.X500Name;
  * 
  * No 3rd party dependencies. This makes it lightweight but not battle hardened, link google tink.
  * 
- * So DO NOT USE IN PRODUCTION. This is a learning tool for me.
+ * So DO NOT USE IN PRODUCTION. This is a learning tool for me. E.G. no private key rotation method yet.
  * 
  * Props to https://neilmadden.blog/2016/05/20/ephemeral-elliptic-curve-diffie-hellman-key-agreement-in-java/
  * And then also to every stackoverflow answer that talks about ciphers and encryption.
@@ -72,11 +73,21 @@ public class ECDHPeer {
 		privateKey = keyPair.getPrivate();
 	}
 
-	public void setPeerPublicKey(byte[] peerPublicKeyEnc) 
+	/**
+	 * Provides the public key of the peer with which we wish to generate an identical symmetric key.
+	 * The symmetric key is produced as a result of combining this public key with the internal provate
+	 * key generated in the constructor, and then applying a SHA-256 hash.
+	 * 
+	 * @param peerPublicKey
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidKeySpecException
+	 * @throws InvalidKeyException
+	 */
+	public void setPeerPublicKey(PublicKey peerPublicKey) 
 			throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException {
 
 		KeyFactory kf = KeyFactory.getInstance("EC");
-		X509EncodedKeySpec pkSpec = new X509EncodedKeySpec(peerPublicKeyEnc);
+		X509EncodedKeySpec pkSpec = new X509EncodedKeySpec(peerPublicKey.getEncoded());
 		this.peerPublicKey = kf.generatePublic(pkSpec);
 
 		// Perform key agreement
@@ -105,10 +116,27 @@ public class ECDHPeer {
 
 	}
 
-	public byte[] getPublicKey() {
-		return publicKey.getEncoded();
+	/**
+	 * Obtain our public key
+	 * 
+	 * @return the public key generated in the constructor
+	 */
+	public PublicKey getPublicKey() {
+		return publicKey;
 	}
 
+	/**
+	 * Encrypts the provided string using the symmetric key generated when a peer public key was provided
+	 * 
+	 * @param input the String to be encrypted
+	 * @return the encrypted String
+	 * @throws NoSuchPaddingException
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidAlgorithmParameterException
+	 * @throws InvalidKeyException
+	 * @throws BadPaddingException
+	 * @throws IllegalBlockSizeException
+	 */
 	public String encrypt(String input) throws NoSuchPaddingException, NoSuchAlgorithmException,
 	InvalidAlgorithmParameterException, InvalidKeyException,
 	BadPaddingException, IllegalBlockSizeException {
@@ -131,11 +159,24 @@ public class ECDHPeer {
 		return iv64 + "." + cipherText64;
 	}
 
-	public String decrypt(String cipherPayload) throws NoSuchPaddingException, NoSuchAlgorithmException,
+	/**
+	 * Decrypts an encrypted String created by the encrypt method, using the symmetric key generated when
+	 * a peer public key was provided
+	 * 
+	 * @param cipherText the encrypted String to be decrypted
+	 * @return the plain text String decrypted from the cipherText
+	 * @throws NoSuchPaddingException
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidAlgorithmParameterException
+	 * @throws InvalidKeyException
+	 * @throws BadPaddingException
+	 * @throws IllegalBlockSizeException
+	 */
+	public String decrypt(String cipherText) throws NoSuchPaddingException, NoSuchAlgorithmException,
 	InvalidAlgorithmParameterException, InvalidKeyException,
 	BadPaddingException, IllegalBlockSizeException {
 
-		var blocks = cipherPayload.split("\\.");
+		var blocks = cipherText.split("\\.");
 		if ( blocks.length != 2 )
 			throw new IllegalArgumentException("payload is not encrypted by ECDHPeer");
 
@@ -159,6 +200,9 @@ public class ECDHPeer {
 	 * 
 	 * @param publicKey
 	 * @return true if it passes standard EC checks, else false
+	 * @throws NoSuchAlgorithmException 
+	 * @throws InvalidKeyException 
+	 * @throws SignatureException 
 	 */
 	/*
 	private boolean validatePublicKey(PublicKey publicKey) {
@@ -187,6 +231,71 @@ public class ECDHPeer {
 		    return false;
 		}
 	}
-	*/
+	 */
 
+	/**
+	 * Produces a signature of the provided String using the private key generated in the constructor
+	 * 
+	 * @param anyText the text from which a signature will be generated
+	 * @return the signature of the provided String
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidKeyException
+	 * @throws SignatureException
+	 */
+	public String sign(String anyText) 
+			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+		
+		Signature privateSignature = Signature.getInstance("SHA256withECDSA");
+		privateSignature.initSign(privateKey);
+		privateSignature.update(anyText.getBytes());
+
+		byte[] signature = privateSignature.sign();
+
+		return Base64.getEncoder().encodeToString(signature);
+	}
+
+	/**
+	 * Verifies the signature of the provided String using the public key generated in our constructor
+	 * 
+	 * @param anyText String containing the data on which the signature was based
+	 * @param signature String containing the alleged signature of the provided String 
+	 * @return true if anyText was signed by our private key, else false
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidKeyException
+	 * @throws SignatureException
+	 */
+	public boolean verify(String anyText, String signature) 
+			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+		
+		Signature publicSignature = Signature.getInstance("SHA256withECDSA");
+		publicSignature.initVerify(publicKey);
+		publicSignature.update(anyText.getBytes());
+
+		byte[] signatureBytes = Base64.getDecoder().decode(signature);
+
+		return publicSignature.verify(signatureBytes);
+	}
+
+	/**
+	 * Verifies the signature of the provided String using the public key provided in setPeerPublicKey
+	 * 
+	 * @param plainText String containing the data on which the signature was based
+	 * @param signature String containing the alleged signature of the provided String created using 
+	 * the private key associated with the peer public key
+	 * @return true if anyText was signed by the peer private key, else false
+	 * @throws NoSuchAlgorithmException
+	 * @throws InvalidKeyException
+	 * @throws SignatureException
+	 */
+	public boolean verifyPeer(String plainText, String signature) 
+			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+		
+		Signature publicSignature = Signature.getInstance("SHA256withECDSA");
+		publicSignature.initVerify(peerPublicKey);
+		publicSignature.update(plainText.getBytes());
+
+		byte[] signatureBytes = Base64.getDecoder().decode(signature);
+
+		return publicSignature.verify(signatureBytes);
+	}
 }
