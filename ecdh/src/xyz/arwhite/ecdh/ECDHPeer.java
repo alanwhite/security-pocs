@@ -18,6 +18,7 @@ import java.security.Signature;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.ECPublicKey;
 import java.security.spec.ECFieldFp;
 import java.security.spec.ECPoint;
 import java.security.spec.InvalidKeySpecException;
@@ -86,6 +87,10 @@ public class ECDHPeer {
 	public void setPeerPublicKey(PublicKey peerPublicKey) 
 			throws NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException {
 
+		if ( !(peerPublicKey instanceof ECPublicKey) 
+				|| !this.validatePublicKey((ECPublicKey) peerPublicKey) ) 
+			throw new IllegalArgumentException("Peer Public Key is not a valid EC Public Key");
+		
 		KeyFactory kf = KeyFactory.getInstance("EC");
 		X509EncodedKeySpec pkSpec = new X509EncodedKeySpec(peerPublicKey.getEncoded());
 		this.peerPublicKey = kf.generatePublic(pkSpec);
@@ -200,16 +205,17 @@ public class ECDHPeer {
 	 * 
 	 * @param publicKey
 	 * @return true if it passes standard EC checks, else false
-	 * @throws NoSuchAlgorithmException 
-	 * @throws InvalidKeyException 
-	 * @throws SignatureException 
 	 */
-	/*
-	private boolean validatePublicKey(PublicKey publicKey) {
+
+	private boolean validatePublicKey(ECPublicKey publicKey) {
 		// Step 1: Verify public key is not point at infinity. 
 		if (ECPoint.POINT_INFINITY.equals(publicKey.getW())) {
-		    return false;
+			return false;
 		}
+		
+		return true;
+		
+		/*
 
 		final BigInteger x = publicKey.getW().getAffineX();
 		final BigInteger y = publicKey.getW().getAffineY();
@@ -217,8 +223,8 @@ public class ECDHPeer {
 
 		// Step 2: Verify x and y are in range [0,p-1]
 		if (x.compareTo(BigInteger.ZERO) < 0 || x.compareTo(p) >= 0
-		        || y.compareTo(BigInteger.ZERO) < 0 || y.compareTo(p) >= 0) {
-		    return false;
+				|| y.compareTo(BigInteger.ZERO) < 0 || y.compareTo(p) >= 0) {
+			return false;
 		}
 
 		final BigInteger a = curveParams.getA();
@@ -228,10 +234,12 @@ public class ECDHPeer {
 		final BigInteger ySquared = y.modPow(TWO, p);
 		final BigInteger xCubedPlusAXPlusB = x.modPow(THREE, p).add(a.multiply(x)).add(b).mod(p);
 		if (!ySquared.equals(xCubedPlusAXPlusB)) {
-		    return false;
+			return false;
 		}
+		
+		*/
 	}
-	 */
+
 
 	/**
 	 * Produces a signature of the provided String using the private key generated in the constructor
@@ -244,7 +252,7 @@ public class ECDHPeer {
 	 */
 	public String sign(String anyText) 
 			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-		
+
 		Signature privateSignature = Signature.getInstance("SHA256withECDSA");
 		privateSignature.initSign(privateKey);
 		privateSignature.update(anyText.getBytes());
@@ -266,7 +274,7 @@ public class ECDHPeer {
 	 */
 	public boolean verify(String anyText, String signature) 
 			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-		
+
 		Signature publicSignature = Signature.getInstance("SHA256withECDSA");
 		publicSignature.initVerify(publicKey);
 		publicSignature.update(anyText.getBytes());
@@ -289,7 +297,7 @@ public class ECDHPeer {
 	 */
 	public boolean verifyPeer(String plainText, String signature) 
 			throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-		
+
 		Signature publicSignature = Signature.getInstance("SHA256withECDSA");
 		publicSignature.initVerify(peerPublicKey);
 		publicSignature.update(plainText.getBytes());
