@@ -1,6 +1,7 @@
-package ecdh.arwhite.xyz;
+package xyz.arwhite.ecdh;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -16,6 +17,8 @@ import java.security.SecureRandom;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.spec.ECFieldFp;
+import java.security.spec.ECPoint;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
@@ -55,7 +58,7 @@ public class ECDHPeer {
 	// NIST recommends AES-GCM
 	// private static final String algorithm = "AES/CBC/PKCS5Padding";
 	private static final String algorithm = "AES/GCM/NoPadding";
-	
+
 	private PrivateKey privateKey;
 	private PublicKey publicKey;
 	private PublicKey peerPublicKey;
@@ -116,15 +119,15 @@ public class ECDHPeer {
 		new SecureRandom().nextBytes(ivRaw);
 		var iv = new IvParameterSpec(ivRaw);
 		var iv64 = Base64.getEncoder().encodeToString(iv.getIV());
-		
+
 		var gcm = new GCMParameterSpec(128, iv.getIV());
-		
+
 		Cipher cipher = Cipher.getInstance(ECDHPeer.algorithm);
 		cipher.init(Cipher.ENCRYPT_MODE, this.symmetricKey, gcm);
 		byte[] cipherText = cipher.doFinal(input.getBytes());
-		
+
 		var cipherText64 = Base64.getEncoder().encodeToString(cipherText);
-		
+
 		return iv64 + "." + cipherText64;
 	}
 
@@ -135,21 +138,55 @@ public class ECDHPeer {
 		var blocks = cipherPayload.split("\\.");
 		if ( blocks.length != 2 )
 			throw new IllegalArgumentException("payload is not encrypted by ECDHPeer");
-		
+
 		var iv64 = blocks[0];
 		var cipherText64 = blocks[1];
-		
+
 		var iv = new IvParameterSpec(Base64.getDecoder().decode(iv64));
-		
+
 		var gcm = new GCMParameterSpec(128, iv.getIV());
-		
+
 		Cipher cipher = Cipher.getInstance(ECDHPeer.algorithm);
 		cipher.init(Cipher.DECRYPT_MODE, this.symmetricKey, gcm);
 		byte[] plainText = cipher.doFinal(Base64.getDecoder().decode(cipherText64));
 		return new String(plainText);
 	}
-	
 
+	/**
+	 * https://neilmadden.blog/2017/05/17/so-how-do-you-validate-nist-ecdh-public-keys/
+	 * 
+	 * Which tbh I'm still trying to truly understand, rather than generally!
+	 * 
+	 * @param publicKey
+	 * @return true if it passes standard EC checks, else false
+	 */
+	/*
+	private boolean validatePublicKey(PublicKey publicKey) {
+		// Step 1: Verify public key is not point at infinity. 
+		if (ECPoint.POINT_INFINITY.equals(publicKey.getW())) {
+		    return false;
+		}
 
-	
+		final BigInteger x = publicKey.getW().getAffineX();
+		final BigInteger y = publicKey.getW().getAffineY();
+		final BigInteger p = ((ECFieldFp) curveParams.getField()).getP();
+
+		// Step 2: Verify x and y are in range [0,p-1]
+		if (x.compareTo(BigInteger.ZERO) < 0 || x.compareTo(p) >= 0
+		        || y.compareTo(BigInteger.ZERO) < 0 || y.compareTo(p) >= 0) {
+		    return false;
+		}
+
+		final BigInteger a = curveParams.getA();
+		final BigInteger b = curveParams.getB();
+
+		// Step 3: Verify that y^2 == x^3 + ax + b (mod p)
+		final BigInteger ySquared = y.modPow(TWO, p);
+		final BigInteger xCubedPlusAXPlusB = x.modPow(THREE, p).add(a.multiply(x)).add(b).mod(p);
+		if (!ySquared.equals(xCubedPlusAXPlusB)) {
+		    return false;
+		}
+	}
+	*/
+
 }

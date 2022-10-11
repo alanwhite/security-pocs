@@ -1,4 +1,4 @@
-package ecdh.arwhite.xyz;
+package xyz.arwhite.ecdh;
 
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
