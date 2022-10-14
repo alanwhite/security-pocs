@@ -6,4 +6,5 @@
  *
  */
 module pki {
+	requires java.base;
 }
