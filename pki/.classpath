@@ -3,7 +3,7 @@
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER">
 		<attributes>
 			<attribute name="module" value="true"/>
-			<attribute name="add-exports" value="java.base/sun.security.tools.keytool=pki:java.base/sun.security.x509=pki:java.base/sun.security.provider=pki:java.base/sun.security.util=pki:java.base/sun.security.pkcs10=pki:java.base/sun.security.pkcs12=pki"/>
+			<attribute name="add-exports" value="java.base/sun.security.tools.keytool=pki:java.base/sun.security.x509=pki:java.base/sun.security.provider=pki:java.base/sun.security.util=pki:java.base/sun.security.pkcs10=pki:java.base/sun.security.pkcs12=pki:java.base/sun.security.pkcs=pki"/>
 		</attributes>
 	</classpathentry>
 	<classpathentry kind="src" path="src"/>

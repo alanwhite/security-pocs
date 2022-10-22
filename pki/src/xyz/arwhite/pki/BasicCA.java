@@ -20,15 +20,15 @@ import java.security.SignatureException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.time.LocalDate;
 import java.util.Base64;
 import java.util.Date;
 import java.util.Optional;
 import java.util.Random;
 
+import sun.security.pkcs.PKCS9Attribute;
 import sun.security.pkcs10.PKCS10;
 import sun.security.provider.X509Factory;
-import sun.security.tools.keytool.CertAndKeyGen;
-import sun.security.util.DerValue;
 import sun.security.util.SignatureUtil;
 import sun.security.x509.AlgorithmId;
 import sun.security.x509.BasicConstraintsExtension;
@@ -40,7 +40,6 @@ import sun.security.x509.CertificateSubjectName;
 import sun.security.x509.CertificateValidity;
 import sun.security.x509.CertificateVersion;
 import sun.security.x509.CertificateX509Key;
-import sun.security.x509.Extension;
 import sun.security.x509.KeyUsageExtension;
 import sun.security.x509.X500Name;
 import sun.security.x509.X509CertImpl;
@@ -76,19 +75,21 @@ public class BasicCA {
 
 	private record CertEntry(PrivateKey privateKey, X509CertImpl certificate) {};
 
-	private final String ROOTKEYSTORENAME = "/tmp/arw-root.jks";
-	private final String ROOTCERTKEY = "root.pki.arwhite.xyz";
-	private final String ROOTX500NAME = "CN=ARWRootCA,O=arwhite,L=Glasgow,C=GB";
-	private final long ROOTCERTDAYSVALID = 3 * 365 * 24 * 60 * 60; // 3 years
+	private static final String ROOTKEYSTORENAME = "/tmp/arw-root.jks";
+	private static final String ROOTCERTKEY = "root.pki.arwhite.xyz";
+	private static final String ROOTX500NAME = "CN=ARWRootCA,O=arwhite,L=Glasgow,C=GB";
+	private static final long ROOT_CERT_SECONDS_VALID = 3 * 365 * 24 * 60 * 60; // 3 years
 
-	private final String INTERKEYSTORENAME = "/tmp/arw-signers.jks";
-	private final String SERVERCERTKEY = "servers.pki.arwhite.xyz";
-	private final String SERVERX500NAME = "CN=ARWServerCA,O=arwhite,L=Glasgow,C=GB";
-	private final long SERVERCERTDAYSVALID = 1 * 365 * 24 * 60 * 60; // 1 year
-
-	private final String CLIENTCERTKEY = "clients.pki.arwhite.xyz";
-	private final String CLIENTX500NAME = "CN=ARWClientCA,O=arwhite,L=Glasgow,C=GB";
-	private final long CLIENTCERTDAYSVALID = 1 * 365 * 24 * 60 * 60; // 1 year
+	private static final String INTERKEYSTORENAME = "/tmp/arw-signers.jks";
+	private static final String SERVERCERTKEY = "servers.pki.arwhite.xyz";
+	private static final String SERVERX500NAME = "CN=ARWServerCA,O=arwhite,L=Glasgow,C=GB";
+	private static final long SERVER_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
+	private static final long SERVER_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
+	
+	private static final String CLIENTCERTKEY = "clients.pki.arwhite.xyz";
+	private static final String CLIENTX500NAME = "CN=ARWClientCA,O=arwhite,L=Glasgow,C=GB";
+	private static final long CLIENT_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
+	private static final long CLIENT_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
 
 	private static final long VALIDITY_DAYS = 7;
 	private static final String SIGNATURE_ALGORITHM = null;
@@ -165,7 +166,7 @@ public class BasicCA {
 				var rootKeyPair = keyGen.generateKeyPair();
 				rootPrivateKey = rootKeyPair.getPrivate();
 
-				var rootCert = this.createRootCACert(new X500Name(ROOTX500NAME), rootKeyPair, ROOTCERTDAYSVALID);
+				var rootCert = this.createRootCACert(new X500Name(ROOTX500NAME), rootKeyPair, ROOT_CERT_SECONDS_VALID);
 				this.rootCert = rootCert.certificate();
 
 				rootKS.setKeyEntry(ROOTCERTKEY, rootCert.privateKey(), 
@@ -183,14 +184,14 @@ public class BasicCA {
 			var keyGen = KeyPairGenerator.getInstance("RSA");
 			var serverKeyPair = keyGen.generateKeyPair();
 			var serverCert = this.createIntermediateCACert(new X500Name(SERVERX500NAME), serverKeyPair, 
-					rootPrivateKey, rootCert, SERVERCERTDAYSVALID);
+					rootPrivateKey, rootCert, SERVER_SIGNING_CERT_SECONDS_VALID);
 
 			certSigningKS.setKeyEntry(SERVERCERTKEY, serverCert.privateKey(), 
 					null, new X509Certificate[] { serverCert.certificate() });
 
 			var clientKeyPair = keyGen.generateKeyPair();
 			var clientCert = this.createIntermediateCACert(new X500Name(CLIENTX500NAME), clientKeyPair, 
-					rootPrivateKey, rootCert, CLIENTCERTDAYSVALID);
+					rootPrivateKey, rootCert, CLIENT_SIGNING_CERT_SECONDS_VALID);
 			
 			certSigningKS.setKeyEntry(CLIENTCERTKEY, clientCert.privateKey(), 
 					null, new X509Certificate[] { clientCert.certificate() });
@@ -338,8 +339,30 @@ public class BasicCA {
 		return new CertificateValidity(startDate, endDate);
 	}
 
-	public void issueServerCert() {}
-	public void issueClientCert() {}
+	public void issueServerCert(PKCS10 csr) 
+			throws CertificateException, IOException, NoSuchAlgorithmException {
+		
+		var issuer = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
+		CertificateValidity interval = this.getCertificateValidity(new Date(), SERVER_CERT_SECONDS_VALID);
+		
+		var csrAttributes = csr.getAttributes();
+		var exts = (CertificateExtensions) csrAttributes.getAttribute(PKCS9Attribute.EXTENSION_REQUEST_OID.toString());
+		
+		var info = new X509CertInfo();		
+		info.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
+		info.set(X509CertInfo.SERIAL_NUMBER, CertificateSerialNumber.newRandom64bit(new SecureRandom()));
+		info.set(X509CertInfo.SUBJECT, new CertificateSubjectName(csr.getSubjectName()));
+		info.set(X509CertInfo.KEY, new CertificateX509Key(csr.getSubjectPublicKeyInfo()));
+		info.set(X509CertInfo.VALIDITY, interval);
+		info.set(X509CertInfo.EXTENSIONS, exts);
+		info.set(X509CertInfo.ISSUER, issuer); 
+		
+		
+	}
+	
+	public void issueClientCert(PKCS10 csr) {
+		
+	}
 
 	// ARW mostly harvested from some stackoverflow post
 	public static byte[] sign(PKCS10 csr, X509CertImpl signerCert, PrivateKey signerPrivKey) 
