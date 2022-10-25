@@ -339,8 +339,9 @@ public class BasicCA {
 		return new CertificateValidity(startDate, endDate);
 	}
 
-	public void issueServerCert(PKCS10 csr) 
-			throws CertificateException, IOException, NoSuchAlgorithmException {
+	public X509Certificate issueServerCert(PKCS10 csr) 
+			throws CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, 
+			NoSuchProviderException, SignatureException {
 		
 		var issuer = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
 		CertificateValidity interval = this.getCertificateValidity(new Date(), SERVER_CERT_SECONDS_VALID);
@@ -348,6 +349,19 @@ public class BasicCA {
 		var csrAttributes = csr.getAttributes();
 		var exts = (CertificateExtensions) csrAttributes.getAttribute(PKCS9Attribute.EXTENSION_REQUEST_OID.toString());
 		
+		// override any key usage statements
+		KeyUsageExtension kue = new KeyUsageExtension(); // sets critical=true;
+		kue.set(KeyUsageExtension.DIGITAL_SIGNATURE, true); // not on CA certs RFC5280
+		kue.set(KeyUsageExtension.KEY_ENCIPHERMENT, true); // is this needed?	
+		kue.set(KeyUsageExtension.KEY_AGREEMENT, true); // not on CA certs RFC5280
+		exts.set(KeyUsageExtension.IDENT, kue);
+		
+		// ensure not a signing cert
+		BasicConstraintsExtension bce = 
+				new BasicConstraintsExtension(false, 0);
+		exts.set(BasicConstraintsExtension.IDENT, bce);
+		
+		// build signed certificate
 		var info = new X509CertInfo();		
 		info.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
 		info.set(X509CertInfo.SERIAL_NUMBER, CertificateSerialNumber.newRandom64bit(new SecureRandom()));
@@ -356,8 +370,11 @@ public class BasicCA {
 		info.set(X509CertInfo.VALIDITY, interval);
 		info.set(X509CertInfo.EXTENSIONS, exts);
 		info.set(X509CertInfo.ISSUER, issuer); 
+		info.set(X509CertInfo.ALGORITHM_ID, 
+				new CertificateAlgorithmId(AlgorithmId.get(
+						SignatureUtil.getDefaultSigAlgForKey(serverPrivateKey))));
 		
-		
+		return this.signCert(info, serverPrivateKey); 
 	}
 	
 	public void issueClientCert(PKCS10 csr) {
