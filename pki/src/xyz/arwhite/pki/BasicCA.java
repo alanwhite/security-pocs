@@ -80,8 +80,10 @@ public class BasicCA {
 	private static final String ROOTX500NAME = "CN=ARWRootCA,O=arwhite,L=Glasgow,C=GB";
 	private static final long ROOT_CERT_SECONDS_VALID = 3 * 365 * 24 * 60 * 60; // 3 years
 
-	private static final String INTERKEYSTORENAME = "/tmp/arw-signers.jks";
-	private static final String SERVERCERTKEY = "servers.pki.arwhite.xyz";
+	private static final String INTER_KEYSTORE_NAME = "/tmp/arw-signers.jks";
+	private static final String INTER_KEYSTORE_PASS = "inthemid";
+	private static final String SERVER_CERT_KEY = "servers.pki.arwhite.xyz";
+	private static final String SERVER_CERT_PASS = "rubbish1";
 	private static final String SERVERX500NAME = "CN=ARWServerCA,O=arwhite,L=Glasgow,C=GB";
 	private static final long SERVER_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
 	private static final long SERVER_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
@@ -110,6 +112,11 @@ public class BasicCA {
 	 * Constructor ensures there's functioning Root and Intermediate CAs.
 	 * Reuses the keystores if they exist, if not, creates them.
 	 * 
+	 * To extract the root CA cert, e.g. to use in a systems trusted certs file
+	 * 
+	 * keytool -exportcert -rfc -alias root.pki.arwhite.xyz -keystore arw-root.jks \
+	 * 		-storepass dumbdumb -file root.pki.arwhite.xyz.pem
+	 * 
 	 * @throws InvalidKeyException
 	 * @throws KeyStoreException
 	 * @throws NoSuchAlgorithmException
@@ -127,11 +134,11 @@ public class BasicCA {
 		boolean createIntermediateCerts = false;
 
 		certSigningKS = KeyStore.getInstance("pkcs12");
-		char[] signingPassword = "inthemiddle".toCharArray();
+		char[] signingPassword = INTER_KEYSTORE_PASS.toCharArray();
 
-		try (FileInputStream fis = new FileInputStream(INTERKEYSTORENAME)) {
+		try (FileInputStream fis = new FileInputStream(INTER_KEYSTORE_NAME)) {
 			certSigningKS.load(fis, signingPassword);
-			if ( !(certSigningKS.containsAlias(CLIENTCERTKEY)) || !(certSigningKS.containsAlias(SERVERCERTKEY)) ) {
+			if ( !(certSigningKS.containsAlias(CLIENTCERTKEY)) || !(certSigningKS.containsAlias(SERVER_CERT_KEY)) ) {
 				createIntermediateCerts = true;
 			}
 
@@ -186,8 +193,8 @@ public class BasicCA {
 			var serverCert = this.createIntermediateCACert(new X500Name(SERVERX500NAME), serverKeyPair, 
 					rootPrivateKey, rootCert, SERVER_SIGNING_CERT_SECONDS_VALID);
 
-			certSigningKS.setKeyEntry(SERVERCERTKEY, serverCert.privateKey(), 
-					null, new X509Certificate[] { serverCert.certificate() });
+			certSigningKS.setKeyEntry(SERVER_CERT_KEY, serverCert.privateKey(), 
+					SERVER_CERT_PASS.toCharArray(), new X509Certificate[] { serverCert.certificate() });
 
 			var clientKeyPair = keyGen.generateKeyPair();
 			var clientCert = this.createIntermediateCACert(new X500Name(CLIENTX500NAME), clientKeyPair, 
@@ -196,14 +203,14 @@ public class BasicCA {
 			certSigningKS.setKeyEntry(CLIENTCERTKEY, clientCert.privateKey(), 
 					null, new X509Certificate[] { clientCert.certificate() });
 
-			try (FileOutputStream fos = new FileOutputStream(INTERKEYSTORENAME)) {
+			try (FileOutputStream fos = new FileOutputStream(INTER_KEYSTORE_NAME)) {
 				certSigningKS.store(fos, signingPassword);
 			}
 
 		} 
 		
-		serverPrivateKey = (PrivateKey) certSigningKS.getKey(SERVERCERTKEY, null);
-		var serverCert = (X509Certificate) certSigningKS.getCertificate(SERVERCERTKEY);
+		serverPrivateKey = (PrivateKey) certSigningKS.getKey(SERVER_CERT_KEY, SERVER_CERT_PASS.toCharArray());
+		var serverCert = (X509Certificate) certSigningKS.getCertificate(SERVER_CERT_KEY);
 		serverX500Name = new X500Name(serverCert.getSubjectX500Principal().getName());
 
 		clientPrivateKey = (PrivateKey) certSigningKS.getKey(CLIENTCERTKEY, null);

@@ -48,12 +48,37 @@ public class TestRig {
 		 * Set up our CA
 		 */
 		var ca = new BasicCA();
+		
+		/*
+		 * Need to gen a cert for this server, and get it signed
+		 * -----------------------------------------------------
+		 * keytool -alias active.auth.arwhite.xyz -dname "cn=localhost, ou=Java, o=Oracle, c=IN" \
+		 * 		-genkeypair -storepass passphrase -keyalg RSA -keystore arw-server.jks
+		 * 
+		 * Then create a CSR
+		 * -----------------
+		 * keytool -certreq -alias active.auth.arwhite.xyz -keystore arw-server.jks \
+		 * 		-storepass passphrase -keyalg rsa -file server.csr
+		 * 
+		 * Generate a cert based on the CSR, that is signed by the intermediate
+		 * --------------------------------------------------------------------
+		 * keytool -gencert -keystore arw-signers.jks -storepass inthemid -alias servers.pki.arwhite.xyz \
+		 * 		-infile server.csr -outfile server.cer
+		 * NB you need to provide rubbish1 at the prompt for the key entry password, and can't provide 
+		 * on command line because it's a pkcs12 store .... who knows!
+		 * 
+		 * Get the signed cert in the keystore the server will use
+		 * -------------------------------------------------------
+		 * keytool -importcert -keystore arw-server.jks -storepass passphrase -file server.cer\
+		 * 		-alias active.auth.arwhite.xyz
+		 * Reply yes to the bizarre prompt
+		 */
 
 		/*
 		 * Prepare key & cert store the https listener will use
 		 */
 		char[] passphrase = "passphrase".toCharArray();
-		KeyStore serverKS = KeyStore.getInstance("JKS");
+		KeyStore serverKS = KeyStore.getInstance("pkcs12");
 
 		boolean getSignedCert = false;
 		try (FileInputStream fis = new FileInputStream(SERVER_KEYSTORE_NAME)) {
@@ -114,6 +139,11 @@ public class TestRig {
 		server.createContext(URI_RESOURCE, new MyHandler());
 		server.setExecutor(null); // creates a default executor
 		server.start();
+		
+		/*
+		 * Test you can make a trusted connection, by telling curl about the root CA
+		 * curl https://localhost:8000/v1/foo/ --cacert root.pki.arwhite.xyz.pem
+		 */
 
 		/*
 		 * Wait for a long time while we test the server
