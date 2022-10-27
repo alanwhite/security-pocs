@@ -2,6 +2,7 @@ package xyz.arwhite.pki;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -9,6 +10,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.KeyManagementException;
+import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
@@ -16,21 +18,20 @@ import java.security.NoSuchProviderException;
 import java.security.SignatureException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.CertificateException;
-
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManagerFactory;
 
-import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpsConfigurator;
-import com.sun.net.httpserver.HttpsServer;
 import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 
-
-
+import sun.security.pkcs10.PKCS10;
+import sun.security.util.SignatureUtil;
+import sun.security.x509.X500Name;
 
 public class TestRig {
 
@@ -77,10 +78,10 @@ public class TestRig {
 		/*
 		 * Prepare key & cert store the https listener will use
 		 */
-		char[] passphrase = "passphrase".toCharArray();
-		KeyStore serverKS = KeyStore.getInstance("pkcs12");
+		var passphrase = "passphrase".toCharArray();
+		var serverKS = KeyStore.getInstance("pkcs12");
 
-		boolean getSignedCert = false;
+		var getSignedCert = false;
 		try (FileInputStream fis = new FileInputStream(SERVER_KEYSTORE_NAME)) {
 			serverKS.load(fis, passphrase);
 			if ( !(serverKS.containsAlias(SERVER_CERT_KEY)) || !(serverKS.containsAlias(SERVER_CERT_KEY)) ) {
@@ -94,18 +95,34 @@ public class TestRig {
 
 		if ( getSignedCert ) {
 			// build pkcs10 csr and get it signed by BasicCA
-			// using a manually built jks for now
+			
+			// Need to gen a CSR for the id of this server (localhost)
+			var keyGen = KeyPairGenerator.getInstance("RSA");
+			keyGen.initialize(2048);
+			var certKeyPair = keyGen.generateKeyPair();
+			  
+			var csr = new PKCS10(certKeyPair.getPublic());
+			var name = new X500Name("CN=localhost,O=arwhite,L=Glasgow,C=GB");
+			csr.encodeAndSign(name, certKeyPair.getPrivate(), SignatureUtil.getDefaultSigAlgForKey(certKeyPair.getPrivate()));
+			
+			var certChain = ca.issueServerCert(csr);
+			serverKS.setKeyEntry(SERVER_CERT_KEY, certKeyPair.getPrivate(), 
+					passphrase, certChain);
+
+			try (FileOutputStream fos = new FileOutputStream(SERVER_KEYSTORE_NAME)) {
+				serverKS.store(fos, passphrase);
+			}
 		}
 
 		serverKS.load(new FileInputStream(SERVER_KEYSTORE_NAME), passphrase);
 
-		KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+		var kmf = KeyManagerFactory.getInstance("PKIX");
 		kmf.init(serverKS, passphrase);
 
-		TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+		var tmf = TrustManagerFactory.getInstance("PKIX");
 		tmf.init(serverKS);
 
-		SSLContext sslContext = SSLContext.getInstance("TLS");
+		var sslContext = SSLContext.getInstance("TLSv1.3");
 		sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
 
 		/*
@@ -119,7 +136,8 @@ public class TestRig {
 
 				// get the remote address if needed
 				InetSocketAddress remote = params.getClientAddress();
-
+				System.out.println("Remote "+remote.getHostString());
+				
 				SSLContext c = getSSLContext();
 
 				// get the default parameters
@@ -127,7 +145,7 @@ public class TestRig {
 				//				if (remote.equals("fred") ) {
 				//					// modify the default set for client x
 				//				}
-				System.out.println("Remote "+remote.getHostString());
+				
 
 				params.setSSLParameters(sslparams);
 				// statement above could throw IAE if any params invalid.
@@ -145,6 +163,16 @@ public class TestRig {
 		 * curl https://localhost:8000/v1/foo/ --cacert root.pki.arwhite.xyz.pem
 		 */
 
+		// client needs the root cert to put in a trust store
+		// client defines trust store to use
+		// make client https call
+		// check response
+		// celebrate
+		// halt server
+		
+		// exit
+		
+		
 		/*
 		 * Wait for a long time while we test the server
 		 */
@@ -169,7 +197,7 @@ public class TestRig {
 
 			InputStream is = t.getRequestBody();
 			var input = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-			String response = "This is the response";
+			var response = "This is the response";
 			t.sendResponseHeaders(200, response.length());
 			OutputStream os = t.getResponseBody();
 			os.write(response.getBytes());

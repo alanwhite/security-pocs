@@ -192,6 +192,7 @@ public class BasicCA {
 			var serverKeyPair = keyGen.generateKeyPair();
 			var serverCert = this.createIntermediateCACert(new X500Name(SERVERX500NAME), serverKeyPair, 
 					rootPrivateKey, rootCert, SERVER_SIGNING_CERT_SECONDS_VALID);
+			this.serverSigningCert = serverCert.certificate();
 
 			certSigningKS.setKeyEntry(SERVER_CERT_KEY, serverCert.privateKey(), 
 					SERVER_CERT_PASS.toCharArray(), new X509Certificate[] { serverCert.certificate() });
@@ -199,6 +200,7 @@ public class BasicCA {
 			var clientKeyPair = keyGen.generateKeyPair();
 			var clientCert = this.createIntermediateCACert(new X500Name(CLIENTX500NAME), clientKeyPair, 
 					rootPrivateKey, rootCert, CLIENT_SIGNING_CERT_SECONDS_VALID);
+			this.clientSigningCert = clientCert.certificate();
 			
 			certSigningKS.setKeyEntry(CLIENTCERTKEY, clientCert.privateKey(), 
 					null, new X509Certificate[] { clientCert.certificate() });
@@ -210,12 +212,12 @@ public class BasicCA {
 		} 
 		
 		serverPrivateKey = (PrivateKey) certSigningKS.getKey(SERVER_CERT_KEY, SERVER_CERT_PASS.toCharArray());
-		var serverCert = (X509Certificate) certSigningKS.getCertificate(SERVER_CERT_KEY);
-		serverX500Name = new X500Name(serverCert.getSubjectX500Principal().getName());
+		serverSigningCert = (X509CertImpl) certSigningKS.getCertificate(SERVER_CERT_KEY);
+		serverX500Name = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
 
 		clientPrivateKey = (PrivateKey) certSigningKS.getKey(CLIENTCERTKEY, null);
-		var clientCert = (X509Certificate) certSigningKS.getCertificate(CLIENTCERTKEY);
-		serverX500Name = new X500Name(clientCert.getSubjectX500Principal().getName());
+		clientSigningCert = (X509CertImpl) certSigningKS.getCertificate(CLIENTCERTKEY);
+		serverX500Name = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
 
 	}
 
@@ -346,17 +348,17 @@ public class BasicCA {
 		return new CertificateValidity(startDate, endDate);
 	}
 
-	public X509Certificate issueServerCert(PKCS10 csr) 
+	// maybe need to return array of certs with newly minted one first, and intermediate second
+	public X509Certificate[] issueServerCert(PKCS10 csr) 
 			throws CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, 
 			NoSuchProviderException, SignatureException {
 		
 		var issuer = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
 		CertificateValidity interval = this.getCertificateValidity(new Date(), SERVER_CERT_SECONDS_VALID);
 		
-		var csrAttributes = csr.getAttributes();
-		var exts = (CertificateExtensions) csrAttributes.getAttribute(PKCS9Attribute.EXTENSION_REQUEST_OID.toString());
+		var exts = new CertificateExtensions();
 		
-		// override any key usage statements
+		// specify key usage 
 		KeyUsageExtension kue = new KeyUsageExtension(); // sets critical=true;
 		kue.set(KeyUsageExtension.DIGITAL_SIGNATURE, true); // not on CA certs RFC5280
 		kue.set(KeyUsageExtension.KEY_ENCIPHERMENT, true); // is this needed?	
@@ -372,7 +374,7 @@ public class BasicCA {
 		var info = new X509CertInfo();		
 		info.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
 		info.set(X509CertInfo.SERIAL_NUMBER, CertificateSerialNumber.newRandom64bit(new SecureRandom()));
-		info.set(X509CertInfo.SUBJECT, new CertificateSubjectName(csr.getSubjectName()));
+		info.set(X509CertInfo.SUBJECT, csr.getSubjectName());
 		info.set(X509CertInfo.KEY, new CertificateX509Key(csr.getSubjectPublicKeyInfo()));
 		info.set(X509CertInfo.VALIDITY, interval);
 		info.set(X509CertInfo.EXTENSIONS, exts);
@@ -381,7 +383,8 @@ public class BasicCA {
 				new CertificateAlgorithmId(AlgorithmId.get(
 						SignatureUtil.getDefaultSigAlgForKey(serverPrivateKey))));
 		
-		return this.signCert(info, serverPrivateKey); 
+		X509Certificate[] certChain = { this.signCert(info, serverPrivateKey), serverSigningCert };
+		return certChain; 
 	}
 	
 	public void issueClientCert(PKCS10 csr) {
