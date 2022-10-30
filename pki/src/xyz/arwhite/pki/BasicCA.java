@@ -18,6 +18,7 @@ import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.security.UnrecoverableKeyException;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.LocalDate;
@@ -244,6 +245,10 @@ public class BasicCA {
 		clientSigningCert = (X509CertImpl) certSigningKS.getCertificate(CLIENTCERTKEY);
 		// clientX500Name = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
 
+	}
+	
+	public Certificate getRootCert() {
+		return this.rootCert;
 	}
 
 	private CertEntry createRootCACert(
