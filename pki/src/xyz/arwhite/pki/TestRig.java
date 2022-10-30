@@ -160,18 +160,20 @@ public class TestRig {
 		
 		/*
 		 * Test you can make a trusted connection, by telling curl about the root CA
-		 * curl https://localhost:8000/v1/foo/ --cacert root.pki.arwhite.xyz.pem
+		 * curl https://localhost:8000/v1/foo/ --cacert /tmp/arw-root-cert.pem
 		 */
 
 		// client needs the root cert to put in a trust store
 		// client defines trust store to use
 		// make client https call
+		// client checks cert presented isn't revoked - where's it getting the crl?
 		// check response
 		// celebrate
 		// halt server
 		
 		// exit
 		
+		// also test when client cert is required by the server.
 		
 		/*
 		 * Wait for a long time while we test the server

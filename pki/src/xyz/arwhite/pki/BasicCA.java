@@ -68,6 +68,8 @@ import sun.security.x509.X509CertInfo;
  * Is rotating signing certs as horrible as it seems! You need to sign every cert again 
  * that they signed? Ah hmmm needs cross-signing, got it. Allows transition. More work TBD!
  * 
+ * OCSP stapling? CRLs?
+ * 
  * @author Alan R. White
  *
  */
@@ -75,7 +77,9 @@ public class BasicCA {
 
 	private record CertEntry(PrivateKey privateKey, X509CertImpl certificate) {};
 
-	private static final String ROOTKEYSTORENAME = "/tmp/arw-root.jks";
+	private static final String ROOT_KEYSTORE_NAME = "/tmp/arw-root.jks";
+	private static final String ROOT_TRUSTSTORE_NAME = "/tmp/arw-root-cert.jks";
+	private static final String ROOT_PEM_NAME = "/tmp/arw-root-cert.pem";
 	private static final String ROOTCERTKEY = "root.pki.arwhite.xyz";
 	private static final String ROOTX500NAME = "CN=ARWRootCA,O=arwhite,L=Glasgow,C=GB";
 	private static final long ROOT_CERT_SECONDS_VALID = 3 * 365 * 24 * 60 * 60; // 3 years
@@ -102,11 +106,11 @@ public class BasicCA {
 
 	private PrivateKey serverPrivateKey = null;
 	private X509CertImpl serverSigningCert = null;
-	private X500Name serverX500Name = null;
+	// private X500Name serverX500Name = null;
 
 	private PrivateKey clientPrivateKey = null;
 	private X509CertImpl clientSigningCert = null;
-	private X500Name clientX500Name = null;
+	// private X500Name clientX500Name = null;
 
 	/**
 	 * Constructor ensures there's functioning Root and Intermediate CAs.
@@ -154,7 +158,7 @@ public class BasicCA {
 			KeyStore rootKS = KeyStore.getInstance("pkcs12");
 			char[] rootPassword = "dumbdumb".toCharArray();
 
-			try (FileInputStream fis = new FileInputStream(ROOTKEYSTORENAME)) {
+			try (FileInputStream fis = new FileInputStream(ROOT_KEYSTORE_NAME)) {
 				rootKS.load(fis, rootPassword);
 				if ( !(rootKS.containsAlias(ROOTCERTKEY)) ) {
 					createRootCert = true;
@@ -165,7 +169,6 @@ public class BasicCA {
 				createRootCert = true;
 			}
 
-			// we never need this after setup
 			PrivateKey rootPrivateKey = null;
 
 			if ( createRootCert ) {
@@ -179,10 +182,32 @@ public class BasicCA {
 				rootKS.setKeyEntry(ROOTCERTKEY, rootCert.privateKey(), 
 						null, new X509Certificate[] { rootCert.certificate() });
 
-				try (FileOutputStream fos = new FileOutputStream(ROOTKEYSTORENAME)) {
+				try (FileOutputStream fos = new FileOutputStream(ROOT_KEYSTORE_NAME)) {
 					rootKS.store(fos, rootPassword);
 				}
+				
+				// put the cert in a truststore for others to use if they need it
+				KeyStore rootTS = KeyStore.getInstance("pkcs12");
+				char[] rootCertPassword = "rootcert".toCharArray();
+				rootTS.load(null, rootCertPassword);
+				rootTS.setCertificateEntry(ROOTCERTKEY, rootCert.certificate());
 
+				try (FileOutputStream fos = new FileOutputStream(ROOT_TRUSTSTORE_NAME)) {
+					rootTS.store(fos, rootCertPassword);
+				}
+				
+				// and in a rather more generally useful pem file
+				var encodedCert = Base64.getMimeEncoder(64, System.getProperty("line.separator").getBytes())
+						.encode(rootCert.certificate().getEncoded());
+				
+				try (FileOutputStream fos = new FileOutputStream(ROOT_PEM_NAME)) {
+					fos.write(X509Factory.BEGIN_CERT.getBytes());
+					fos.write(System.getProperty("line.separator").getBytes());
+					fos.write(encodedCert);
+					fos.write(System.getProperty("line.separator").getBytes());
+					fos.write(X509Factory.END_CERT.getBytes());
+				}
+		
 			} else {
 				rootPrivateKey = (PrivateKey) rootKS.getKey(ROOTCERTKEY, null);
 				rootCert = (X509CertImpl) rootKS.getCertificate(ROOTCERTKEY);
@@ -213,11 +238,11 @@ public class BasicCA {
 		
 		serverPrivateKey = (PrivateKey) certSigningKS.getKey(SERVER_CERT_KEY, SERVER_CERT_PASS.toCharArray());
 		serverSigningCert = (X509CertImpl) certSigningKS.getCertificate(SERVER_CERT_KEY);
-		serverX500Name = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
+		// serverX500Name = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
 
 		clientPrivateKey = (PrivateKey) certSigningKS.getKey(CLIENTCERTKEY, null);
 		clientSigningCert = (X509CertImpl) certSigningKS.getCertificate(CLIENTCERTKEY);
-		serverX500Name = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
+		// clientX500Name = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
 
 	}
 
