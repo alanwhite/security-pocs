@@ -71,10 +71,33 @@ public class TestRig {
 
 	}
 
-	private void runServer() 
-			throws KeyStoreException, IOException, KeyManagementException, 
-			NoSuchAlgorithmException, CertificateException, UnrecoverableKeyException, 
-			InvalidKeyException, SignatureException, NoSuchProviderException {
+	/**
+	 * Run an https listener
+	 * 
+	 * @param uriResource
+	 * @param httpsPort
+	 * @param serverKeyStore
+	 * @param serverCertKey
+	 * @param caTrustStoreName
+	 * @throws KeyStoreException
+	 * @throws IOException
+	 * @throws KeyManagementException
+	 * @throws NoSuchAlgorithmException
+	 * @throws CertificateException
+	 * @throws UnrecoverableKeyException
+	 * @throws InvalidKeyException
+	 * @throws SignatureException
+	 * @throws NoSuchProviderException
+	 */
+	private void runServer(
+			String uriResource, 
+			int httpsPort,
+			String serverKeyStore,
+			String serverCertKey,
+			String caTrustStoreName)
+					throws KeyStoreException, IOException, KeyManagementException, 
+					NoSuchAlgorithmException, CertificateException, UnrecoverableKeyException, 
+					InvalidKeyException, SignatureException, NoSuchProviderException {
 
 		/*
 		 * Need to gen a cert for this server, and get it signed
@@ -108,9 +131,9 @@ public class TestRig {
 		var serverKS = KeyStore.getInstance("pkcs12");
 
 		var getSignedCert = false;
-		try (FileInputStream fis = new FileInputStream(SERVER_KEYSTORE_NAME)) {
+		try (FileInputStream fis = new FileInputStream(serverKeyStore)) {
 			serverKS.load(fis, passphrase);
-			if ( !(serverKS.containsAlias(SERVER_CERT_KEY)) || !(serverKS.containsAlias(SERVER_CERT_KEY)) ) {
+			if ( !(serverKS.containsAlias(serverCertKey)) || !(serverKS.containsAlias(serverCertKey)) ) {
 				getSignedCert = true;
 			}
 
@@ -132,15 +155,15 @@ public class TestRig {
 			csr.encodeAndSign(name, certKeyPair.getPrivate(), SignatureUtil.getDefaultSigAlgForKey(certKeyPair.getPrivate()));
 
 			var certChain = ca.issueServerCert(csr);
-			serverKS.setKeyEntry(SERVER_CERT_KEY, certKeyPair.getPrivate(), 
+			serverKS.setKeyEntry(serverCertKey, certKeyPair.getPrivate(), 
 					passphrase, certChain);
 
-			try (FileOutputStream fos = new FileOutputStream(SERVER_KEYSTORE_NAME)) {
+			try (FileOutputStream fos = new FileOutputStream(serverKeyStore)) {
 				serverKS.store(fos, passphrase);
 			}
 		}
 
-		serverKS.load(new FileInputStream(SERVER_KEYSTORE_NAME), passphrase);
+		serverKS.load(new FileInputStream(serverKeyStore), passphrase);
 
 		var kmf = KeyManagerFactory.getInstance("PKIX");
 		kmf.init(serverKS, passphrase);
@@ -152,7 +175,7 @@ public class TestRig {
 		KeyStore cacerts = KeyStore.getInstance("pkcs12");
 		char[] rootCertPassword = "rootcert".toCharArray();
 
-		try (FileInputStream fis = new FileInputStream(CA_TRUSTSTORE_NAME)) {
+		try (FileInputStream fis = new FileInputStream(caTrustStoreName)) {
 			cacerts.load(fis, rootCertPassword);
 		}
 
@@ -170,7 +193,7 @@ public class TestRig {
 		 * Run the https listener 
 		 * Note: Only supports HTTP/1.1, not 2 or later ....
 		 */
-		server = HttpsServer.create(new InetSocketAddress(HTTPS_PORT), 0);
+		server = HttpsServer.create(new InetSocketAddress(httpsPort), 0);
 
 		server.setHttpsConfigurator (new HttpsConfigurator(sslContext) {
 			public void configure (HttpsParameters params) {
@@ -189,7 +212,7 @@ public class TestRig {
 			}
 		});
 
-		server.createContext(URI_RESOURCE, new MyHandler());
+		server.createContext(uriResource, new MyHandler());
 		server.setExecutor(null); // creates a default executor
 		server.start();
 
@@ -282,19 +305,19 @@ public class TestRig {
 
 		Objects.requireNonNull(uri);
 		Objects.requireNonNull(caTrustStoreName);
-		
+
 		/*
 		 * Prepare any key & cert store the https client may use to identify itself
 		 */
 
 		KeyManager[] keyManagers = null;
-		
+
 		if ( clientKeyStore.isPresent() ) {
 			var passphrase = "passphrase".toCharArray();
 			var clientKS = KeyStore.getInstance("pkcs12");
 
 			var getSignedCert = false;
-			try (FileInputStream fis = new FileInputStream(CLIENT_KEYSTORE_NAME)) {
+			try (FileInputStream fis = new FileInputStream(clientKeyStore.get())) {
 				clientKS.load(fis, passphrase);
 				if ( !(clientKS.containsAlias(clientCertKey.get())) || !(clientKS.containsAlias(clientCertKey.get())) ) {
 					getSignedCert = true;
@@ -328,7 +351,7 @@ public class TestRig {
 
 			var kmf = KeyManagerFactory.getInstance("PKIX");
 			kmf.init(clientKS, passphrase);
-			
+
 			keyManagers = kmf.getKeyManagers();
 		}
 
@@ -432,7 +455,10 @@ public class TestRig {
 		 * Run our server
 		 */
 
-		tr.runServer();
+		tr.runServer(
+				URI_RESOURCE, HTTPS_PORT, 
+				SERVER_KEYSTORE_NAME, SERVER_CERT_KEY, 
+				CA_TRUSTSTORE_NAME);
 
 		/*
 		 * Make one way and two way TLS secured Http requests
