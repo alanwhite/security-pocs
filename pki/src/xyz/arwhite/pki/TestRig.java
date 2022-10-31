@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.KeyManagementException;
@@ -22,6 +23,9 @@ import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManagerFactory;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -35,10 +39,19 @@ import sun.security.x509.X500Name;
 
 public class TestRig {
 
+	private static final String CA_TRUSTSTORE_NAME = "/tmp/arw-root-cert.jks";
+	private static final String CA_CERT_KEY = "root.pki.arwhite.xyz";
+
 	private static final String SERVER_KEYSTORE_NAME = "/tmp/arw-server.jks";
 	private static final String SERVER_CERT_KEY = "active.auth.arwhite.xyz";
+
+	private static final String CLIENT_KEYSTORE_NAME = "/tmp/arw-client.jks";
+	private static final String CLIENT_CERT_KEY = "active.auth.arwhite.xyz";
+
 	private static final String URI_RESOURCE = "/v1/foo/";
 	private static final int HTTPS_PORT = 8000;
+
+	private BasicCA ca;
 
 	public TestRig() 
 			throws InvalidKeyException, UnrecoverableKeyException, KeyStoreException, 
@@ -48,8 +61,8 @@ public class TestRig {
 		/*
 		 * Set up our CA
 		 */
-		var ca = new BasicCA();
-		
+		ca = new BasicCA();
+
 		/*
 		 * Need to gen a cert for this server, and get it signed
 		 * -----------------------------------------------------
@@ -95,16 +108,16 @@ public class TestRig {
 
 		if ( getSignedCert ) {
 			// build pkcs10 csr and get it signed by BasicCA
-			
+
 			// Need to gen a CSR for the id of this server (localhost)
 			var keyGen = KeyPairGenerator.getInstance("RSA");
 			keyGen.initialize(2048);
 			var certKeyPair = keyGen.generateKeyPair();
-			  
+
 			var csr = new PKCS10(certKeyPair.getPublic());
 			var name = new X500Name("CN=localhost,O=arwhite,L=Glasgow,C=GB");
 			csr.encodeAndSign(name, certKeyPair.getPrivate(), SignatureUtil.getDefaultSigAlgForKey(certKeyPair.getPrivate()));
-			
+
 			var certChain = ca.issueServerCert(csr);
 			serverKS.setKeyEntry(SERVER_CERT_KEY, certKeyPair.getPrivate(), 
 					passphrase, certChain);
@@ -137,7 +150,7 @@ public class TestRig {
 				// get the remote address if needed
 				InetSocketAddress remote = params.getClientAddress();
 				System.out.println("Remote "+remote.getHostString());
-				
+
 				SSLContext c = getSSLContext();
 
 				// get the default parameters
@@ -145,7 +158,7 @@ public class TestRig {
 				//				if (remote.equals("fred") ) {
 				//					// modify the default set for client x
 				//				}
-				
+
 
 				params.setSSLParameters(sslparams);
 				// statement above could throw IAE if any params invalid.
@@ -157,23 +170,14 @@ public class TestRig {
 		server.createContext(URI_RESOURCE, new MyHandler());
 		server.setExecutor(null); // creates a default executor
 		server.start();
-		
+
 		/*
 		 * Test you can make a trusted connection, by telling curl about the root CA
 		 * curl https://localhost:8000/v1/foo/ --cacert /tmp/arw-root-cert.pem
 		 */
 
-		// client needs the root cert to put in a trust store
-		// client defines trust store to use
-		// make client https call
-		// client checks cert presented isn't revoked - where's it getting the crl?
-		// check response
-		// celebrate
-		// halt server
-		
-		// exit
-		
-		// also test when client cert is required by the server.
+		Thread.sleep(2000);
+		makeOneWayTLSClientRequest();
 		
 		/*
 		 * Wait for a long time while we test the server
@@ -206,6 +210,100 @@ public class TestRig {
 			os.close();
 		}
 	}
+
+	/**
+	 * Connects to the server that presents the custom signed cert
+	 * @throws KeyStoreException 
+	 * @throws IOException 
+	 * @throws FileNotFoundException 
+	 * @throws CertificateException 
+	 * @throws NoSuchAlgorithmException 
+	 * @throws KeyManagementException 
+	 * @throws InterruptedException 
+	 */
+	private void makeOneWayTLSClientRequest() 
+			throws KeyStoreException, FileNotFoundException, IOException, 
+			NoSuchAlgorithmException, CertificateException, KeyManagementException, InterruptedException {
+
+		KeyStore cacerts = KeyStore.getInstance("pkcs12");
+		char[] rootCertPassword = "rootcert".toCharArray();
+
+		try (FileInputStream fis = new FileInputStream(CA_TRUSTSTORE_NAME)) {
+			cacerts.load(fis, rootCertPassword);
+		}
+
+		var kmf = KeyManagerFactory.getInstance("PKIX");
+		var tmf = TrustManagerFactory.getInstance("PKIX");
+		tmf.init(cacerts);
+
+		var sslContext = SSLContext.getInstance("TLSv1.3");
+		sslContext.init(null, tmf.getTrustManagers(), null);
+		
+		var client = HttpClient.newBuilder()
+				.sslContext(sslContext)
+				.build();
+
+		var request = HttpRequest.newBuilder()
+				.uri(URI.create("https://localhost:"+HTTPS_PORT+URI_RESOURCE))
+				.build();
+
+		HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+		System.out.println("Status:\t"+response.statusCode());
+		System.out.println("Request:\t"+response.request());
+		System.out.println("Previous:\t"+(response.previousResponse().isPresent() ? response.previousResponse().get() : "none"));
+		System.out.println("Headers:\t"+response.headers());
+		System.out.println("Body:\t"+response.body());
+		System.out.println("Session:\t"+(response.sslSession().isPresent() ? response.sslSession().get() : "none"));
+		System.out.println("URI:\t"+response.uri());
+		System.out.println("Version:\t"+response.version());	
+	}
+
+	/**
+	 * Connect to the server that presents the custom signed cert and authenticates
+	 * using a custom client cert.
+	 * 
+	 * @throws KeyStoreException
+	 * @throws NoSuchAlgorithmException
+	 * @throws CertificateException
+	 * @throws IOException
+	 */
+	private void makeTwoWayTLSClientRequest() 
+			throws KeyStoreException, NoSuchAlgorithmException, CertificateException, IOException {
+
+		/*
+		 * Prepare key & cert store the https client will use to identify itself
+		 */
+		var passphrase = "passphrase".toCharArray();
+		var clientKS = KeyStore.getInstance("pkcs12");
+
+		var getSignedCert = false;
+		try (FileInputStream fis = new FileInputStream(CLIENT_KEYSTORE_NAME)) {
+			clientKS.load(fis, passphrase);
+			if ( !(clientKS.containsAlias(CLIENT_CERT_KEY)) || !(clientKS.containsAlias(CLIENT_CERT_KEY)) ) {
+				getSignedCert = true;
+			}
+
+		} catch (FileNotFoundException e) {
+			clientKS.load(null, passphrase);
+			getSignedCert = true;
+		}
+
+		if ( getSignedCert ) {
+			// build pkcs10 csr and get it signed by BasicCA
+
+
+
+		}
+
+		//		var client = HttpClient.newBuilder()
+		//				.sslContext(SSLContext.getDefault())
+		//				.sslParameters()
+		//				.build();
+		//		
+		//		
+	}
+
 
 	/**
 	 * Do it

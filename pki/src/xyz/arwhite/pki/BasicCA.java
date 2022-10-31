@@ -81,7 +81,7 @@ public class BasicCA {
 	private static final String ROOT_KEYSTORE_NAME = "/tmp/arw-root.jks";
 	private static final String ROOT_TRUSTSTORE_NAME = "/tmp/arw-root-cert.jks";
 	private static final String ROOT_PEM_NAME = "/tmp/arw-root-cert.pem";
-	private static final String ROOTCERTKEY = "root.pki.arwhite.xyz";
+	private static final String CA_CERT_KEY = "root.pki.arwhite.xyz";
 	private static final String ROOTX500NAME = "CN=ARWRootCA,O=arwhite,L=Glasgow,C=GB";
 	private static final long ROOT_CERT_SECONDS_VALID = 3 * 365 * 24 * 60 * 60; // 3 years
 
@@ -92,7 +92,7 @@ public class BasicCA {
 	private static final String SERVERX500NAME = "CN=ARWServerCA,O=arwhite,L=Glasgow,C=GB";
 	private static final long SERVER_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
 	private static final long SERVER_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
-	
+
 	private static final String CLIENTCERTKEY = "clients.pki.arwhite.xyz";
 	private static final String CLIENTX500NAME = "CN=ARWClientCA,O=arwhite,L=Glasgow,C=GB";
 	private static final long CLIENT_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
@@ -161,7 +161,7 @@ public class BasicCA {
 
 			try (FileInputStream fis = new FileInputStream(ROOT_KEYSTORE_NAME)) {
 				rootKS.load(fis, rootPassword);
-				if ( !(rootKS.containsAlias(ROOTCERTKEY)) ) {
+				if ( !(rootKS.containsAlias(CA_CERT_KEY)) ) {
 					createRootCert = true;
 				}
 
@@ -180,27 +180,27 @@ public class BasicCA {
 				var rootCert = this.createRootCACert(new X500Name(ROOTX500NAME), rootKeyPair, ROOT_CERT_SECONDS_VALID);
 				this.rootCert = rootCert.certificate();
 
-				rootKS.setKeyEntry(ROOTCERTKEY, rootCert.privateKey(), 
+				rootKS.setKeyEntry(CA_CERT_KEY, rootCert.privateKey(), 
 						null, new X509Certificate[] { rootCert.certificate() });
 
 				try (FileOutputStream fos = new FileOutputStream(ROOT_KEYSTORE_NAME)) {
 					rootKS.store(fos, rootPassword);
 				}
-				
+
 				// put the cert in a truststore for others to use if they need it
 				KeyStore rootTS = KeyStore.getInstance("pkcs12");
 				char[] rootCertPassword = "rootcert".toCharArray();
 				rootTS.load(null, rootCertPassword);
-				rootTS.setCertificateEntry(ROOTCERTKEY, rootCert.certificate());
+				rootTS.setCertificateEntry(CA_CERT_KEY, rootCert.certificate());
 
 				try (FileOutputStream fos = new FileOutputStream(ROOT_TRUSTSTORE_NAME)) {
 					rootTS.store(fos, rootCertPassword);
 				}
-				
+
 				// and in a rather more generally useful pem file
 				var encodedCert = Base64.getMimeEncoder(64, System.getProperty("line.separator").getBytes())
 						.encode(rootCert.certificate().getEncoded());
-				
+
 				try (FileOutputStream fos = new FileOutputStream(ROOT_PEM_NAME)) {
 					fos.write(X509Factory.BEGIN_CERT.getBytes());
 					fos.write(System.getProperty("line.separator").getBytes());
@@ -208,10 +208,10 @@ public class BasicCA {
 					fos.write(System.getProperty("line.separator").getBytes());
 					fos.write(X509Factory.END_CERT.getBytes());
 				}
-		
+
 			} else {
-				rootPrivateKey = (PrivateKey) rootKS.getKey(ROOTCERTKEY, null);
-				rootCert = (X509CertImpl) rootKS.getCertificate(ROOTCERTKEY);
+				rootPrivateKey = (PrivateKey) rootKS.getKey(CA_CERT_KEY, null);
+				rootCert = (X509CertImpl) rootKS.getCertificate(CA_CERT_KEY);
 			}
 
 			var keyGen = KeyPairGenerator.getInstance("RSA");
@@ -227,7 +227,7 @@ public class BasicCA {
 			var clientCert = this.createIntermediateCACert(new X500Name(CLIENTX500NAME), clientKeyPair, 
 					rootPrivateKey, rootCert, CLIENT_SIGNING_CERT_SECONDS_VALID);
 			this.clientSigningCert = clientCert.certificate();
-			
+
 			certSigningKS.setKeyEntry(CLIENTCERTKEY, clientCert.privateKey(), 
 					null, new X509Certificate[] { clientCert.certificate() });
 
@@ -236,7 +236,7 @@ public class BasicCA {
 			}
 
 		} 
-		
+
 		serverPrivateKey = (PrivateKey) certSigningKS.getKey(SERVER_CERT_KEY, SERVER_CERT_PASS.toCharArray());
 		serverSigningCert = (X509CertImpl) certSigningKS.getCertificate(SERVER_CERT_KEY);
 		// serverX500Name = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
@@ -246,7 +246,7 @@ public class BasicCA {
 		// clientX500Name = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
 
 	}
-	
+
 	public Certificate getRootCert() {
 		return this.rootCert;
 	}
@@ -260,7 +260,7 @@ public class BasicCA {
 
 		return createCACert(subject, certKeyPair, Optional.empty(), Optional.empty(), validSeconds);
 	}
-	
+
 	private CertEntry createIntermediateCACert(
 			X500Name subject, 
 			KeyPair certKeyPair,
@@ -273,7 +273,7 @@ public class BasicCA {
 				Optional.of(signingKey), Optional.of(signingCert), validSeconds);
 
 	}
-	
+
 	/**
 	 * Creates a root or intermediate CA cert 
 	 * @param subject X500Name for the DN
@@ -314,51 +314,51 @@ public class BasicCA {
 		CertificateExtensions extensions = new CertificateExtensions();
 
 		// Key Usage Extension
-		KeyUsageExtension kue = new KeyUsageExtension(); // sets critical=true;
-		kue.set(KeyUsageExtension.KEY_CERTSIGN, true); // RFC5280 MUST be set on CA certs
-		extensions.set(KeyUsageExtension.IDENT, kue);
+		KeyUsageExtension keyUsage = new KeyUsageExtension(); // sets critical=true;
+		keyUsage.set(KeyUsageExtension.KEY_CERTSIGN, true); // RFC5280 MUST be set on CA certs
+		extensions.set(KeyUsageExtension.IDENT, keyUsage);
 
 		// basic constraints - if rootCA allow 1 level more of cert signing, else none for intermediates
-		BasicConstraintsExtension bce = 
+		BasicConstraintsExtension constraints = 
 				new BasicConstraintsExtension(true, signingCert.isPresent() ? 0 : 1);
-		extensions.set(BasicConstraintsExtension.IDENT, bce);
+		extensions.set(BasicConstraintsExtension.IDENT, constraints);
 
-		X509CertInfo info = new X509CertInfo();
+		X509CertInfo certInfo = new X509CertInfo();
 
 		// Add all mandatory attributes
-		info.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
-		info.set(X509CertInfo.SERIAL_NUMBER, CertificateSerialNumber.newRandom64bit(new SecureRandom()));
-		info.set(X509CertInfo.SUBJECT, subject);
-		info.set(X509CertInfo.KEY, new CertificateX509Key(certPublicKey));
-		info.set(X509CertInfo.VALIDITY, interval);
-		info.set(X509CertInfo.EXTENSIONS, extensions);
+		certInfo.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
+		certInfo.set(X509CertInfo.SERIAL_NUMBER, CertificateSerialNumber.newRandom64bit(new SecureRandom()));
+		certInfo.set(X509CertInfo.SUBJECT, subject);
+		certInfo.set(X509CertInfo.KEY, new CertificateX509Key(certPublicKey));
+		certInfo.set(X509CertInfo.VALIDITY, interval);
+		certInfo.set(X509CertInfo.EXTENSIONS, extensions);
 
 		var signWith = certPrivateKey;
 
 		if ( signingCert.isPresent() ) {
 			// sign with provided key to build intermediate CA cert
-			info.set(X509CertInfo.ISSUER, new X500Name(signingCert.get().getSubjectDN().getName()));
+			certInfo.set(X509CertInfo.ISSUER, new X500Name(signingCert.get().getSubjectDN().getName()));
 
-			info.set(X509CertInfo.ALGORITHM_ID, 
+			certInfo.set(X509CertInfo.ALGORITHM_ID, 
 					new CertificateAlgorithmId(AlgorithmId.get(
 							SignatureUtil.getDefaultSigAlgForKey(signingKey.get()))));
 
 			signWith = signingKey.get();
 
 		} else {
-			
+
 			// issuer same as subject for self-signed
-			info.set(X509CertInfo.ISSUER, subject);
-			
+			certInfo.set(X509CertInfo.ISSUER, subject);
+
 			// self-sign for rootCA
-			info.set(X509CertInfo.ALGORITHM_ID, 
+			certInfo.set(X509CertInfo.ALGORITHM_ID, 
 					new CertificateAlgorithmId(AlgorithmId.get(
 							SignatureUtil.getDefaultSigAlgForKey(certPrivateKey))));
 
 			// seems we need an issuer in there, even for self-signed?
 		}
 
-		cert = this.signCert(info, signWith); 
+		cert = this.signCert(certInfo, signWith); 
 
 		return new CertEntry(certPrivateKey, cert);
 	}
@@ -378,163 +378,63 @@ public class BasicCA {
 		return new CertificateValidity(startDate, endDate);
 	}
 
-	// maybe need to return array of certs with newly minted one first, and intermediate second
+	/*
+	 * Issue certs signed by intermediate cert
+	 */
+	
 	public X509Certificate[] issueServerCert(PKCS10 csr) 
 			throws CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, 
 			NoSuchProviderException, SignatureException {
-		
-		var issuer = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
-		CertificateValidity interval = this.getCertificateValidity(new Date(), SERVER_CERT_SECONDS_VALID);
-		
-		var exts = new CertificateExtensions();
-		
+
+		return issueSignedCert(csr,SERVER_CERT_SECONDS_VALID, serverPrivateKey, serverSigningCert);
+	}
+
+	public X509Certificate[] issueClientCert(PKCS10 csr) 
+			throws CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, 
+			NoSuchProviderException, SignatureException {
+
+		return issueSignedCert(csr,CLIENT_CERT_SECONDS_VALID, clientPrivateKey, clientSigningCert);
+	}
+
+	private X509Certificate[] issueSignedCert(
+			PKCS10 csr, 
+			long secondsValid,
+			PrivateKey privateKey, 
+			X509Certificate signingCert) 
+					throws CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, 
+					NoSuchProviderException, SignatureException {
+
+		var issuer = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
+		CertificateValidity interval = this.getCertificateValidity(new Date(), secondsValid);
+
+		var extensions = new CertificateExtensions();
+
 		// specify key usage 
-		KeyUsageExtension kue = new KeyUsageExtension(); // sets critical=true;
-		kue.set(KeyUsageExtension.DIGITAL_SIGNATURE, true); // not on CA certs RFC5280
-		kue.set(KeyUsageExtension.KEY_ENCIPHERMENT, true); // is this needed?	
-		kue.set(KeyUsageExtension.KEY_AGREEMENT, true); // not on CA certs RFC5280
-		exts.set(KeyUsageExtension.IDENT, kue);
-		
+		KeyUsageExtension keyUsage = new KeyUsageExtension(); // sets critical=true;
+		keyUsage.set(KeyUsageExtension.DIGITAL_SIGNATURE, true); // not on CA certs RFC5280
+		keyUsage.set(KeyUsageExtension.KEY_ENCIPHERMENT, true); // is this needed?	
+		keyUsage.set(KeyUsageExtension.KEY_AGREEMENT, true); // not on CA certs RFC5280
+		extensions.set(KeyUsageExtension.IDENT, keyUsage);
+
 		// ensure not a signing cert
-		BasicConstraintsExtension bce = 
+		BasicConstraintsExtension constraints = 
 				new BasicConstraintsExtension(false, 0);
-		exts.set(BasicConstraintsExtension.IDENT, bce);
-		
+		extensions.set(BasicConstraintsExtension.IDENT, constraints);
+
 		// build signed certificate
-		var info = new X509CertInfo();		
-		info.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
-		info.set(X509CertInfo.SERIAL_NUMBER, CertificateSerialNumber.newRandom64bit(new SecureRandom()));
-		info.set(X509CertInfo.SUBJECT, csr.getSubjectName());
-		info.set(X509CertInfo.KEY, new CertificateX509Key(csr.getSubjectPublicKeyInfo()));
-		info.set(X509CertInfo.VALIDITY, interval);
-		info.set(X509CertInfo.EXTENSIONS, exts);
-		info.set(X509CertInfo.ISSUER, issuer); 
-		info.set(X509CertInfo.ALGORITHM_ID, 
+		var certInfo = new X509CertInfo();		
+		certInfo.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
+		certInfo.set(X509CertInfo.SERIAL_NUMBER, CertificateSerialNumber.newRandom64bit(new SecureRandom()));
+		certInfo.set(X509CertInfo.SUBJECT, csr.getSubjectName());
+		certInfo.set(X509CertInfo.KEY, new CertificateX509Key(csr.getSubjectPublicKeyInfo()));
+		certInfo.set(X509CertInfo.VALIDITY, interval);
+		certInfo.set(X509CertInfo.EXTENSIONS, extensions);
+		certInfo.set(X509CertInfo.ISSUER, issuer); 
+		certInfo.set(X509CertInfo.ALGORITHM_ID, 
 				new CertificateAlgorithmId(AlgorithmId.get(
-						SignatureUtil.getDefaultSigAlgForKey(serverPrivateKey))));
-		
-		X509Certificate[] certChain = { this.signCert(info, serverPrivateKey), serverSigningCert };
+						SignatureUtil.getDefaultSigAlgForKey(privateKey))));
+
+		X509Certificate[] certChain = { this.signCert(certInfo, privateKey), signingCert };
 		return certChain; 
 	}
-	
-	public void issueClientCert(PKCS10 csr) {
-		
-	}
-
-	// ARW mostly harvested from some stackoverflow post
-	public static byte[] sign(PKCS10 csr, X509CertImpl signerCert, PrivateKey signerPrivKey) 
-			throws CertificateException, IOException, InvalidKeyException, SignatureException, 
-			NoSuchAlgorithmException, NoSuchProviderException {
-
-		/*
-		 * The code below is partly taken from the KeyTool class in OpenJDK7.
-		 */
-
-		X509CertInfo signerCertInfo = (X509CertInfo) signerCert.get(X509CertImpl.NAME + "." + X509CertImpl.INFO);
-		X500Name issuer = (X500Name) signerCertInfo.get(X509CertInfo.SUBJECT + "." + CertificateSubjectName.DN_NAME);
-
-		/*
-		 * Set the certificate's validity:
-		 * From now and for VALIDITY_DAYS days 
-		 */
-		Date firstDate = new Date();
-		Date lastDate = new Date();
-		lastDate.setTime(firstDate.getTime() + VALIDITY_DAYS * 1000L * 24L * 60L * 60L);
-		CertificateValidity interval = new CertificateValidity(firstDate, lastDate);
-
-		/*
-		 * Initialize the signature object
-		 */
-		Signature signature;
-		try {
-			signature = Signature.getInstance(SIGNATURE_ALGORITHM);
-		} catch (NoSuchAlgorithmException e) {
-			throw new RuntimeException(e);
-		}
-		signature.initSign(signerPrivKey);
-
-		/*
-		 * Add the certificate information to a container object
-		 */
-		X509CertInfo certInfo = new X509CertInfo();
-		certInfo.set(X509CertInfo.VALIDITY, interval);
-		certInfo.set(X509CertInfo.SERIAL_NUMBER, new CertificateSerialNumber(new Random().nextInt() & 0x7fffffff));
-		certInfo.set(X509CertInfo.VERSION, new CertificateVersion(CertificateVersion.V3));
-		certInfo.set(X509CertInfo.ALGORITHM_ID, new CertificateAlgorithmId(AlgorithmId.get(SIGNATURE_ALGORITHM)));
-		certInfo.set(X509CertInfo.ISSUER, new CertificateIssuerName(issuer));
-		certInfo.set(X509CertInfo.KEY, new CertificateX509Key(csr.getSubjectPublicKeyInfo()));
-		certInfo.set(X509CertInfo.SUBJECT, new CertificateSubjectName(csr.getSubjectName()));
-
-		/*
-		 * Add x509v3 extensions to the container
-		 */
-		CertificateExtensions extensions = new CertificateExtensions();
-
-		// Key Usage Extension
-		KeyUsageExtension kue = new KeyUsageExtension(); // sets critical=true;
-		kue.set(KeyUsageExtension.DIGITAL_SIGNATURE, true); // not on CA certs RFC5280
-		kue.set(KeyUsageExtension.KEY_ENCIPHERMENT, true); // is this needed?	
-		kue.set(KeyUsageExtension.KEY_AGREEMENT, true); // not on CA certs RFC5280
-		kue.set(KeyUsageExtension.KEY_CERTSIGN, true); // RFC5280 MUST be set on CA certs, and isCA true in basic contraints
-
-		extensions.set(KeyUsageExtension.IDENT, kue);
-
-		// basic constraints
-		// BasicConstraintsExtension bce = new BasicConstraintsExtension();
-
-		certInfo.set(X509CertInfo.EXTENSIONS, extensions);
-
-		//	    byte[] keyUsageValue = new DerValue(DerValue.tag_OctetString, kue.getExtensionValue()).toByteArray();
-		//	    extensions.set(KeyUsageExtension.NAME, new Extension(
-		//	            kue.getExtensionId(),
-		//	            true, // Critical
-		//	            keyUsageValue));
-
-
-		/*
-		 * Create the certificate and sign it
-		 */
-		X509CertImpl cert = new X509CertImpl(certInfo);
-		cert.sign(signerPrivKey, SIGNATURE_ALGORITHM);
-
-
-		/*
-		 * Return the signed certificate as PEM-encoded bytes
-		 */
-		ByteArrayOutputStream bos = new ByteArrayOutputStream();
-		PrintStream out = new PrintStream(bos);
-		out.println(X509Factory.BEGIN_CERT);
-		out.println(new String(Base64.getEncoder().encode(cert.getEncoded())));
-		out.println(X509Factory.END_CERT);
-		out.flush();
-		return bos.toByteArray();
-	}
-
-	//	ARW- Harvested from https://stackoverflow.com/questions/49985805/add-key-usage-to-certificatesigninginfo-in-java
-	//	import sun.security.pkcs.*;
-	//	import sun.security.pkcs10.*; // separate in j8 (and later? not checked) 
-	//	import sun.security.util.*;
-	//	import sun.security.x509.*;
-	//
-	//	    // dummy setup; replace as appropriate
-	//	    X500Name name = new X500Name("O=Widgets Inc, CN=testcert");
-	//	    KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
-	//	    gen.initialize(1024); KeyPair pair = gen.generateKeyPair();
-	//	    
-	//	    KeyUsageExtension ku = new KeyUsageExtension();
-	//	    ku.set(KeyUsageExtension.NON_REPUDIATION, true);
-	//	    ku.set(KeyUsageExtension.KEY_ENCIPHERMENT, true);
-	//	    ku.set(KeyUsageExtension.DIGITAL_SIGNATURE, true);
-	//	    CertificateExtensions exts = new CertificateExtensions();
-	//	    exts.set(KeyUsageExtension.IDENT,ku);
-	//	    PKCS10Attribute extreq = new PKCS10Attribute (PKCS9Attribute.EXTENSION_REQUEST_OID, exts);
-	//	    
-	//	    PKCS10 csr = new PKCS10 (pair.getPublic(), new PKCS10Attributes (new PKCS10Attribute[]{ extreq }));
-	//	    Signature signer = Signature.getInstance("SHA256withRSA"); // or adapt to key 
-	//	    signer.initSign(pair.getPrivate());
-	//	    csr.encodeAndSign(name, signer);
-	//
-	//	    // dummy output; replace 
-	//	    FileOutputStream out = new FileOutputStream ("SO49985805.der");
-	//	    out.write(csr.getEncoded()); out.close();
 }
