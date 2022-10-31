@@ -22,12 +22,14 @@ import java.security.cert.CertificateException;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.TrustManagerFactory;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpsExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
@@ -158,7 +160,7 @@ public class TestRig {
 				//				if (remote.equals("fred") ) {
 				//					// modify the default set for client x
 				//				}
-
+				sslparams.setWantClientAuth(true);
 
 				params.setSSLParameters(sslparams);
 				// statement above could throw IAE if any params invalid.
@@ -171,18 +173,7 @@ public class TestRig {
 		server.setExecutor(null); // creates a default executor
 		server.start();
 
-		/*
-		 * Test you can make a trusted connection, by telling curl about the root CA
-		 * curl https://localhost:8000/v1/foo/ --cacert /tmp/arw-root-cert.pem
-		 */
 
-		Thread.sleep(2000);
-		makeOneWayTLSClientRequest();
-		
-		/*
-		 * Wait for a long time while we test the server
-		 */
-		Thread.sleep(1000000);
 	}
 
 	/**
@@ -200,13 +191,37 @@ public class TestRig {
 			});
 			System.out.println("Protocol "+t.getProtocol());
 
+			var responseBody = "This is the response for an unauthenticated caller";
+			if ( t instanceof HttpsExchange ) {
+				var u = (HttpsExchange) t;
+				var s = u.getSSLSession();
+				if ( s != null ) {
+					try {
+						var rp = s.getPeerPrincipal();
+						System.out.println("Remote P: "+rp.getName());
+						responseBody = "This is the response for "+rp.getName();
+						// System.out.println("Hmmm SSL Session is NOT null");
+					} catch(SSLPeerUnverifiedException e) {
+						System.out.println("Remote P: Not Provided");
+					}
+				} else
+					System.out.println("Hmmm SSL Session is null");
+
+				// we need to see if a cert was provided
+				// and was signed by the CA we trust? ie not an identity provided by some dodgy
+				// CA - I mean we could only trust certs from our CA to do the same thing
+
+				// in this example code we do only trust client certs signed by our CA so
+
+
+			}
 
 			InputStream is = t.getRequestBody();
 			var input = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-			var response = "This is the response";
-			t.sendResponseHeaders(200, response.length());
+			// var response = "This is the response";
+			t.sendResponseHeaders(200, responseBody.length());
 			OutputStream os = t.getResponseBody();
-			os.write(response.getBytes());
+			os.write(responseBody.getBytes());
 			os.close();
 		}
 	}
@@ -238,7 +253,7 @@ public class TestRig {
 
 		var sslContext = SSLContext.getInstance("TLSv1.3");
 		sslContext.init(null, tmf.getTrustManagers(), null);
-		
+
 		var client = HttpClient.newBuilder()
 				.sslContext(sslContext)
 				.build();
@@ -249,14 +264,24 @@ public class TestRig {
 
 		HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
+
 		System.out.println("Status:\t"+response.statusCode());
 		System.out.println("Request:\t"+response.request());
 		System.out.println("Previous:\t"+(response.previousResponse().isPresent() ? response.previousResponse().get() : "none"));
 		System.out.println("Headers:\t"+response.headers());
 		System.out.println("Body:\t"+response.body());
-		System.out.println("Session:\t"+(response.sslSession().isPresent() ? response.sslSession().get() : "none"));
 		System.out.println("URI:\t"+response.uri());
 		System.out.println("Version:\t"+response.version());	
+
+		response.sslSession().ifPresent(ssl -> {
+			System.out.println("SSL Protocol\t"+ssl.getProtocol());
+			try {
+				System.out.println("SSL Peer ID\t"+ssl.getPeerPrincipal());
+			} catch (SSLPeerUnverifiedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		});
 	}
 
 	/**
@@ -312,8 +337,25 @@ public class TestRig {
 	 */
 	public static void main(String[] args) throws Exception {
 
-		new TestRig();
+		/*
+		 * Set up the CA, Server etc.
+		 */
 
+		var tr = new TestRig();
+
+		/*
+		 * Test you can make a trusted connection, by telling curl about the root CA
+		 * curl https://localhost:8000/v1/foo/ --cacert /tmp/arw-root-cert.pem
+		 */
+
+		Thread.sleep(2000);
+		tr.makeOneWayTLSClientRequest();
+
+		/*
+		 * Wait for a long time while we test the server
+		 */
+
+		Thread.sleep(1000000);
 	}
 
 }
