@@ -134,8 +134,19 @@ public class TestRig {
 		var kmf = KeyManagerFactory.getInstance("PKIX");
 		kmf.init(serverKS, passphrase);
 
+		/*
+		 * Prepare which CA's certs we will trust when presented by a client
+		 */
+		
+		KeyStore cacerts = KeyStore.getInstance("pkcs12");
+		char[] rootCertPassword = "rootcert".toCharArray();
+
+		try (FileInputStream fis = new FileInputStream(CA_TRUSTSTORE_NAME)) {
+			cacerts.load(fis, rootCertPassword);
+		}
+
 		var tmf = TrustManagerFactory.getInstance("PKIX");
-		tmf.init(serverKS);
+		tmf.init(cacerts);
 
 		var sslContext = SSLContext.getInstance("TLSv1.3");
 		sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
@@ -292,13 +303,20 @@ public class TestRig {
 	 * @throws NoSuchAlgorithmException
 	 * @throws CertificateException
 	 * @throws IOException
+	 * @throws KeyManagementException 
+	 * @throws InterruptedException 
+	 * @throws UnrecoverableKeyException 
+	 * @throws SignatureException 
+	 * @throws InvalidKeyException 
+	 * @throws NoSuchProviderException 
 	 */
 	private void makeTwoWayTLSClientRequest() 
-			throws KeyStoreException, NoSuchAlgorithmException, CertificateException, IOException {
+			throws KeyStoreException, NoSuchAlgorithmException, CertificateException, IOException, KeyManagementException, InterruptedException, UnrecoverableKeyException, InvalidKeyException, SignatureException, NoSuchProviderException {
 
 		/*
 		 * Prepare key & cert store the https client will use to identify itself
 		 */
+
 		var passphrase = "passphrase".toCharArray();
 		var clientKS = KeyStore.getInstance("pkcs12");
 
@@ -317,16 +335,82 @@ public class TestRig {
 		if ( getSignedCert ) {
 			// build pkcs10 csr and get it signed by BasicCA
 
+			// Need to gen a CSR for the id of this server (localhost)
+			var keyGen = KeyPairGenerator.getInstance("RSA");
+			keyGen.initialize(2048);
+			var certKeyPair = keyGen.generateKeyPair();
 
+			var csr = new PKCS10(certKeyPair.getPublic());
+			var name = new X500Name("CN=localclient,O=arwhite,L=Glasgow,C=GB");
+			csr.encodeAndSign(name, certKeyPair.getPrivate(), SignatureUtil.getDefaultSigAlgForKey(certKeyPair.getPrivate()));
+
+			var certChain = ca.issueClientCert(csr);
+			clientKS.setKeyEntry(CLIENT_CERT_KEY, certKeyPair.getPrivate(), 
+					passphrase, certChain);
+
+			try (FileOutputStream fos = new FileOutputStream(CLIENT_KEYSTORE_NAME)) {
+				clientKS.store(fos, passphrase);
+			}
 
 		}
 
-		//		var client = HttpClient.newBuilder()
-		//				.sslContext(SSLContext.getDefault())
-		//				.sslParameters()
-		//				.build();
-		//		
-		//		
+		var kmf = KeyManagerFactory.getInstance("PKIX");
+		kmf.init(clientKS, passphrase);
+
+		/*
+		 * Ensure this client can trust the certificate that the server presents 
+		 */
+
+		KeyStore cacerts = KeyStore.getInstance("pkcs12");
+		char[] rootCertPassword = "rootcert".toCharArray();
+
+		try (FileInputStream fis = new FileInputStream(CA_TRUSTSTORE_NAME)) {
+			cacerts.load(fis, rootCertPassword);
+		}
+
+		var tmf = TrustManagerFactory.getInstance("PKIX");
+		tmf.init(cacerts);
+
+		/*
+		 * Tie together the key and trust managers for the call
+		 */
+
+		var sslContext = SSLContext.getInstance("TLSv1.3");
+		sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
+
+		/*
+		 * Make the call
+		 */
+
+		var client = HttpClient.newBuilder()
+				.sslContext(sslContext)
+				.build();
+
+		var request = HttpRequest.newBuilder()
+				.uri(URI.create("https://localhost:"+HTTPS_PORT+URI_RESOURCE))
+				.build();
+
+		HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+
+		System.out.println("Status:\t"+response.statusCode());
+		System.out.println("Request:\t"+response.request());
+		System.out.println("Previous:\t"+(response.previousResponse().isPresent() ? response.previousResponse().get() : "none"));
+		System.out.println("Headers:\t"+response.headers());
+		System.out.println("Body:\t"+response.body());
+		System.out.println("URI:\t"+response.uri());
+		System.out.println("Version:\t"+response.version());	
+
+		response.sslSession().ifPresent(ssl -> {
+			System.out.println("SSL Protocol\t"+ssl.getProtocol());
+			try {
+				System.out.println("SSL Peer ID\t"+ssl.getPeerPrincipal());
+			} catch (SSLPeerUnverifiedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		});
+
 	}
 
 
@@ -348,8 +432,11 @@ public class TestRig {
 		 * curl https://localhost:8000/v1/foo/ --cacert /tmp/arw-root-cert.pem
 		 */
 
+		// Thread.sleep(2000);
+		// tr.makeOneWayTLSClientRequest();
+
 		Thread.sleep(2000);
-		tr.makeOneWayTLSClientRequest();
+		tr.makeTwoWayTLSClientRequest();
 
 		/*
 		 * Wait for a long time while we test the server
