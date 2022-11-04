@@ -1,11 +1,9 @@
 package xyz.arwhite.pki;
 
-import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -15,19 +13,15 @@ import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
-import java.security.Signature;
 import java.security.SignatureException;
 import java.security.UnrecoverableKeyException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
-import java.time.LocalDate;
 import java.util.Base64;
 import java.util.Date;
 import java.util.Optional;
-import java.util.Random;
 
-import sun.security.pkcs.PKCS9Attribute;
 import sun.security.pkcs10.PKCS10;
 import sun.security.provider.X509Factory;
 import sun.security.util.SignatureUtil;
@@ -35,9 +29,7 @@ import sun.security.x509.AlgorithmId;
 import sun.security.x509.BasicConstraintsExtension;
 import sun.security.x509.CertificateAlgorithmId;
 import sun.security.x509.CertificateExtensions;
-import sun.security.x509.CertificateIssuerName;
 import sun.security.x509.CertificateSerialNumber;
-import sun.security.x509.CertificateSubjectName;
 import sun.security.x509.CertificateValidity;
 import sun.security.x509.CertificateVersion;
 import sun.security.x509.CertificateX509Key;
@@ -53,7 +45,7 @@ import sun.security.x509.X509CertInfo;
  * Will see how it develops.
  * 
  * TODO
- * 1. Thinking needs to provide getCertificateChain returning root and intermediate certs.
+ * Thinking needs to provide getCertificateChain returning root and intermediate certs.
  * Allows others to trust certs signed by our intermediates. Seems that the server or client
  * should provide any needed intermediary certs. The peer should have the root cert in their
  * trust store, to be able verify the provided intermediary and peer cert.
@@ -78,28 +70,27 @@ public class BasicCA {
 
 	private record CertEntry(PrivateKey privateKey, X509CertImpl certificate) {};
 
-	private static final String ROOT_KEYSTORE_NAME = "/tmp/arw-root.jks";
-	private static final String ROOT_TRUSTSTORE_NAME = "/tmp/arw-root-cert.jks";
-	private static final String ROOT_PEM_NAME = "/tmp/arw-root-cert.pem";
-	private static final String CA_CERT_KEY = "root.pki.arwhite.xyz";
-	private static final String ROOTX500NAME = "CN=ARWRootCA,O=arwhite,L=Glasgow,C=GB";
-	private static final long ROOT_CERT_SECONDS_VALID = 3 * 365 * 24 * 60 * 60; // 3 years
+	private final String ROOT_KEYSTORE_NAME = "/tmp/arw-root.jks";
+	private final String ROOT_KEYSTORE_PASS = "dumbdumb";
+	private final String CACERT_KEYSTORE_NAME = "/tmp/arw-root-cert.jks";
+	private final String CACERT_KEYSTORE_PASS = "rootcert";
+	private final String CACERT_PEM_NAME = "/tmp/arw-root-cert.pem";
+	private final String CA_CERT_KEY = "root.pki.arwhite.xyz";
+	private final String ROOT_X500_NAME = "CN=ARWRootCA,O=arwhite,L=Glasgow,C=GB";
+	private final long ROOT_CERT_SECONDS_VALID = 3 * 365 * 24 * 60 * 60; // 3 years
 
-	private static final String INTER_KEYSTORE_NAME = "/tmp/arw-signers.jks";
-	private static final String INTER_KEYSTORE_PASS = "inthemid";
-	private static final String SERVER_CERT_KEY = "servers.pki.arwhite.xyz";
-	private static final String SERVER_CERT_PASS = "rubbish1";
-	private static final String SERVERX500NAME = "CN=ARWServerCA,O=arwhite,L=Glasgow,C=GB";
-	private static final long SERVER_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
-	private static final long SERVER_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
+	private final String INTER_KEYSTORE_NAME = "/tmp/arw-signers.jks";
+	private final String INTER_KEYSTORE_PASS = "inthemid";
+	private final String SERVER_CERT_KEY = "servers.pki.arwhite.xyz";
+	private final String SERVER_CERT_PASS = "rubbish1";
+	private final String SERVERX500NAME = "CN=ARWServerCA,O=arwhite,L=Glasgow,C=GB";
+	private final long SERVER_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
+	private final long SERVER_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
 
-	private static final String CLIENTCERTKEY = "clients.pki.arwhite.xyz";
-	private static final String CLIENTX500NAME = "CN=ARWClientCA,O=arwhite,L=Glasgow,C=GB";
-	private static final long CLIENT_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
-	private static final long CLIENT_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
-
-	private static final long VALIDITY_DAYS = 7;
-	private static final String SIGNATURE_ALGORITHM = null;
+	private final String CLIENTCERTKEY = "clients.pki.arwhite.xyz";
+	private final String CLIENTX500NAME = "CN=ARWClientCA,O=arwhite,L=Glasgow,C=GB";
+	private final long CLIENT_SIGNING_CERT_SECONDS_VALID = 1 * 365 * 24 * 60 * 60; // 1 year
+	private final long CLIENT_CERT_SECONDS_VALID = 1 * 28 * 24 * 60 * 60; // 28 days
 
 	private X509CertImpl rootCert;
 
@@ -107,12 +98,12 @@ public class BasicCA {
 
 	private PrivateKey serverPrivateKey = null;
 	private X509CertImpl serverSigningCert = null;
-	// private X500Name serverX500Name = null;
 
 	private PrivateKey clientPrivateKey = null;
 	private X509CertImpl clientSigningCert = null;
-	// private X500Name clientX500Name = null;
 
+
+	
 	/**
 	 * Constructor ensures there's functioning Root and Intermediate CAs.
 	 * Reuses the keystores if they exist, if not, creates them.
@@ -157,7 +148,7 @@ public class BasicCA {
 			boolean createRootCert = false;
 
 			KeyStore rootKS = KeyStore.getInstance("pkcs12");
-			char[] rootPassword = "dumbdumb".toCharArray();
+			char[] rootPassword = ROOT_KEYSTORE_PASS.toCharArray();
 
 			try (FileInputStream fis = new FileInputStream(ROOT_KEYSTORE_NAME)) {
 				rootKS.load(fis, rootPassword);
@@ -177,7 +168,7 @@ public class BasicCA {
 				var rootKeyPair = keyGen.generateKeyPair();
 				rootPrivateKey = rootKeyPair.getPrivate();
 
-				var rootCert = this.createRootCACert(new X500Name(ROOTX500NAME), rootKeyPair, ROOT_CERT_SECONDS_VALID);
+				var rootCert = this.createRootCACert(new X500Name(ROOT_X500_NAME), rootKeyPair, ROOT_CERT_SECONDS_VALID);
 				this.rootCert = rootCert.certificate();
 
 				rootKS.setKeyEntry(CA_CERT_KEY, rootCert.privateKey(), 
@@ -189,11 +180,11 @@ public class BasicCA {
 
 				// put the cert in a truststore for others to use if they need it
 				KeyStore rootTS = KeyStore.getInstance("pkcs12");
-				char[] rootCertPassword = "rootcert".toCharArray();
+				char[] rootCertPassword = CACERT_KEYSTORE_PASS.toCharArray();
 				rootTS.load(null, rootCertPassword);
 				rootTS.setCertificateEntry(CA_CERT_KEY, rootCert.certificate());
 
-				try (FileOutputStream fos = new FileOutputStream(ROOT_TRUSTSTORE_NAME)) {
+				try (FileOutputStream fos = new FileOutputStream(CACERT_KEYSTORE_NAME)) {
 					rootTS.store(fos, rootCertPassword);
 				}
 
@@ -201,7 +192,7 @@ public class BasicCA {
 				var encodedCert = Base64.getMimeEncoder(64, System.getProperty("line.separator").getBytes())
 						.encode(rootCert.certificate().getEncoded());
 
-				try (FileOutputStream fos = new FileOutputStream(ROOT_PEM_NAME)) {
+				try (FileOutputStream fos = new FileOutputStream(CACERT_PEM_NAME)) {
 					fos.write(X509Factory.BEGIN_CERT.getBytes());
 					fos.write(System.getProperty("line.separator").getBytes());
 					fos.write(encodedCert);
@@ -239,14 +230,12 @@ public class BasicCA {
 
 		serverPrivateKey = (PrivateKey) certSigningKS.getKey(SERVER_CERT_KEY, SERVER_CERT_PASS.toCharArray());
 		serverSigningCert = (X509CertImpl) certSigningKS.getCertificate(SERVER_CERT_KEY);
-		// serverX500Name = new X500Name(serverSigningCert.getSubjectX500Principal().getName());
 
 		clientPrivateKey = (PrivateKey) certSigningKS.getKey(CLIENTCERTKEY, null);
 		clientSigningCert = (X509CertImpl) certSigningKS.getCertificate(CLIENTCERTKEY);
-		// clientX500Name = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
 
 	}
-
+		
 	public Certificate getRootCert() {
 		return this.rootCert;
 	}

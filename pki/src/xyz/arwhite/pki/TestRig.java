@@ -246,7 +246,7 @@ public class TestRig {
 							var rp = s.getPeerPrincipal();
 							System.out.println("Remote P: "+rp.getName()+" ("+rp.getClass()+")");
 							responseBody = "This is the response for "+rp.getName();
-							System.out.println("Client ID: "+getCN(s).orElse("Not Found"));
+							System.out.println("Client ID: "+getPeerCN(s).orElse("Not Found"));
 
 						} catch(SSLPeerUnverifiedException e) {
 							System.out.println("Remote P: Not Provided");
@@ -274,6 +274,29 @@ public class TestRig {
 		}
 	}
 
+	private void makeOneWayTLSClientRequest(
+			String uri,
+			String caTrustStoreName)
+					throws KeyStoreException, NoSuchAlgorithmException, CertificateException, 
+					IOException, KeyManagementException, InterruptedException, UnrecoverableKeyException, 
+					InvalidKeyException, SignatureException, NoSuchProviderException {
+		
+		this.makeClientRequest(uri, caTrustStoreName, Optional.empty(), Optional.empty());
+	}
+	
+	private void makeTwoWayTLSClientRequest(
+			String uri,
+			String caTrustStoreName,
+			Optional<String> clientKeyStore,
+			Optional<String> clientCertKey)
+					throws KeyStoreException, NoSuchAlgorithmException, CertificateException, 
+					IOException, KeyManagementException, InterruptedException, UnrecoverableKeyException, 
+					InvalidKeyException, SignatureException, NoSuchProviderException {
+		
+		this.makeClientRequest(uri, caTrustStoreName, clientKeyStore, clientCertKey);
+	}
+	
+	
 	/**
 	 * Connect to the server that presents a custom signed cert and optionally 
 	 * provide a client certificate as identity
@@ -313,6 +336,9 @@ public class TestRig {
 		KeyManager[] keyManagers = null;
 
 		if ( clientKeyStore.isPresent() ) {
+			if ( clientCertKey.isEmpty() )
+				throw new IllegalArgumentException("Client Cert Key not provided");
+			
 			var passphrase = "passphrase".toCharArray();
 			var clientKS = KeyStore.getInstance("pkcs12");
 
@@ -393,7 +419,7 @@ public class TestRig {
 		printHttpResponse(response);
 
 	}
-
+	
 	/**
 	 * DRY pretty print http response
 	 * @param response
@@ -409,7 +435,7 @@ public class TestRig {
 
 		response.sslSession().ifPresent(ssl -> {
 			System.out.println("SSL Protocol\t"+ssl.getProtocol());
-			System.out.println("SSL Peer ID\t"+getCN(ssl).orElse("Not Found"));
+			System.out.println("SSL Peer ID\t"+getPeerCN(ssl).orElse("Not Found"));
 		});
 	}
 
@@ -419,24 +445,20 @@ public class TestRig {
 	 * @param sslSession
 	 * @return Optional String populated if the CN is present
 	 */
-	private Optional<String> getCN(SSLSession sslSession) {
+	private Optional<String> getPeerCN(SSLSession sslSession) {
 		Optional<String> clientName = Optional.empty();
 
 		try {
-			var ln = new LdapName(sslSession.getPeerPrincipal().getName());
-			var clientNameOpt = ln.getRdns().stream()
-					.filter(rdn -> rdn.getType().equalsIgnoreCase("CN"))
-					.findFirst();
-
-			if ( clientNameOpt.isPresent() )
-				clientName = Optional.of((String) clientNameOpt.get().getValue());
-
+			clientName = Optional.of(
+					new X500Name(sslSession.getPeerPrincipal().getName()).getCommonName());
+			
 		} catch(Exception e) {
 			e.printStackTrace();
 		}
 
 		return clientName;
 	}
+	
 
 	/**
 	 * Do it
@@ -465,14 +487,12 @@ public class TestRig {
 		 */
 
 		Thread.sleep(2000);
-		tr.makeClientRequest(
+		tr.makeOneWayTLSClientRequest(
 				"https://localhost:"+HTTPS_PORT+URI_RESOURCE, 
-				CA_TRUSTSTORE_NAME, 
-				Optional.empty(), 
-				Optional.empty());
-
+				CA_TRUSTSTORE_NAME);
+		
 		Thread.sleep(2000);
-		tr.makeClientRequest(
+		tr.makeTwoWayTLSClientRequest(
 				"https://localhost:"+HTTPS_PORT+URI_RESOURCE, 
 				CA_TRUSTSTORE_NAME, 
 				Optional.of(CLIENT_KEYSTORE_NAME), 
