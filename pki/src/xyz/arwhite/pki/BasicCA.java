@@ -393,7 +393,7 @@ public class BasicCA {
 					throws CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException, 
 					NoSuchProviderException, SignatureException {
 
-		var issuer = new X500Name(clientSigningCert.getSubjectX500Principal().getName());
+		var issuer = new X500Name(signingCert.getSubjectX500Principal().getName());
 		CertificateValidity interval = this.getCertificateValidity(new Date(), secondsValid);
 
 		var extensions = new CertificateExtensions();

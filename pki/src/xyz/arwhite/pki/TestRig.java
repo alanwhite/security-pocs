@@ -23,7 +23,6 @@ import java.security.cert.CertificateException;
 import java.util.Objects;
 import java.util.Optional;
 
-import javax.naming.ldap.LdapName;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -280,10 +279,10 @@ public class TestRig {
 					throws KeyStoreException, NoSuchAlgorithmException, CertificateException, 
 					IOException, KeyManagementException, InterruptedException, UnrecoverableKeyException, 
 					InvalidKeyException, SignatureException, NoSuchProviderException {
-		
+
 		this.makeClientRequest(uri, caTrustStoreName, Optional.empty(), Optional.empty());
 	}
-	
+
 	private void makeTwoWayTLSClientRequest(
 			String uri,
 			String caTrustStoreName,
@@ -292,11 +291,11 @@ public class TestRig {
 					throws KeyStoreException, NoSuchAlgorithmException, CertificateException, 
 					IOException, KeyManagementException, InterruptedException, UnrecoverableKeyException, 
 					InvalidKeyException, SignatureException, NoSuchProviderException {
-		
+
 		this.makeClientRequest(uri, caTrustStoreName, clientKeyStore, clientCertKey);
 	}
-	
-	
+
+
 	/**
 	 * Connect to the server that presents a custom signed cert and optionally 
 	 * provide a client certificate as identity
@@ -338,7 +337,7 @@ public class TestRig {
 		if ( clientKeyStore.isPresent() ) {
 			if ( clientCertKey.isEmpty() )
 				throw new IllegalArgumentException("Client Cert Key not provided");
-			
+
 			var passphrase = "passphrase".toCharArray();
 			var clientKS = KeyStore.getInstance("pkcs12");
 
@@ -399,7 +398,7 @@ public class TestRig {
 		 * Tie together the key and trust managers for the call
 		 */
 
-		var sslContext = SSLContext.getInstance("TLSv1.3");
+		var sslContext = SSLContext.getInstance("TLSv1.2");
 		sslContext.init(keyManagers, tmf.getTrustManagers(), null);
 
 		/*
@@ -419,7 +418,7 @@ public class TestRig {
 		printHttpResponse(response);
 
 	}
-	
+
 	/**
 	 * DRY pretty print http response
 	 * @param response
@@ -451,14 +450,14 @@ public class TestRig {
 		try {
 			clientName = Optional.of(
 					new X500Name(sslSession.getPeerPrincipal().getName()).getCommonName());
-			
+
 		} catch(Exception e) {
 			e.printStackTrace();
 		}
 
 		return clientName;
 	}
-	
+
 
 	/**
 	 * Do it
@@ -476,7 +475,7 @@ public class TestRig {
 		/*
 		 * Run our server
 		 */
-
+		System.out.println("Run Server");
 		tr.runServer(
 				URI_RESOURCE, HTTPS_PORT, 
 				SERVER_KEYSTORE_NAME, SERVER_CERT_KEY, 
@@ -486,17 +485,27 @@ public class TestRig {
 		 * Make one way and two way TLS secured Http requests
 		 */
 
-		Thread.sleep(2000);
-		tr.makeOneWayTLSClientRequest(
-				"https://localhost:"+HTTPS_PORT+URI_RESOURCE, 
-				CA_TRUSTSTORE_NAME);
-		
-		Thread.sleep(2000);
-		tr.makeTwoWayTLSClientRequest(
-				"https://localhost:"+HTTPS_PORT+URI_RESOURCE, 
-				CA_TRUSTSTORE_NAME, 
-				Optional.of(CLIENT_KEYSTORE_NAME), 
-				Optional.of(CLIENT_CERT_KEY));
+		try {
+			Thread.sleep(2000);
+			System.out.println("Make one-way TLS request");
+			tr.makeOneWayTLSClientRequest(
+					"https://localhost:"+HTTPS_PORT+URI_RESOURCE, 
+					CA_TRUSTSTORE_NAME);
+		} catch(Exception e) {
+			e.printStackTrace();
+		}
+
+		try {
+			Thread.sleep(2000);
+			System.out.println("Make two-way TLS request");
+			tr.makeTwoWayTLSClientRequest(
+					"https://localhost:"+HTTPS_PORT+URI_RESOURCE, 
+					CA_TRUSTSTORE_NAME, 
+					Optional.of(CLIENT_KEYSTORE_NAME), 
+					Optional.of(CLIENT_CERT_KEY));
+		} catch(Exception e) {
+			e.printStackTrace();
+		}
 
 		/*
 		 * Wait for a long time while we test the server
@@ -504,7 +513,7 @@ public class TestRig {
 		 * You can test making a trusted connection by telling curl about the root CA
 		 * curl https://localhost:8000/v1/foo/ --cacert /tmp/arw-root-cert.pem
 		 */
-
+		System.out.println("Wait for a long time ...");
 		Thread.sleep(1000000);
 	}
 
