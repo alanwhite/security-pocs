@@ -29,7 +29,7 @@ public class TestRig {
 		System.out.println(decrypted);
 		
 		var signature = bob.sign("arwhite.xyz");
-		System.out.println("Sginature verification is "+alice.verifyPeer("arwhite.xyz", signature));
+		System.out.println("Signature verification is "+alice.verifyPeer("arwhite.xyz", signature));
 	}
 
 }

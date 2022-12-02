@@ -14,6 +14,7 @@ import java.security.SecureRandom;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.security.interfaces.ECPublicKey;
+import java.security.spec.ECGenParameterSpec;
 import java.security.spec.ECPoint;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
@@ -57,9 +58,9 @@ public class ECDHPeer {
 	private PublicKey peerPublicKey;
 	private SecretKey symmetricKey;
 
-	public ECDHPeer() throws NoSuchAlgorithmException {
+	public ECDHPeer() throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
 		KeyPairGenerator keyPairGen = KeyPairGenerator.getInstance("EC");
-		keyPairGen.initialize(256);
+		keyPairGen.initialize(new ECGenParameterSpec("secp521r1"));
 		KeyPair keyPair = keyPairGen.generateKeyPair();
 		publicKey = keyPair.getPublic();
 		privateKey = keyPair.getPrivate();
