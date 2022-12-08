@@ -30,6 +30,19 @@ public class TestRig {
 		
 		var signature = bob.sign("arwhite.xyz");
 		System.out.println("Signature verification is "+alice.verifyPeer("arwhite.xyz", signature));
+		
+		if ( bob.performPoPChallenge(alice) )
+			System.out.println("Alice successfully proved possession of their private key");
+		
+		if ( alice.performPoPChallenge(bob) )
+			System.out.println("Bob successfully proved possession of their private key");
+		
+		var start = System.currentTimeMillis();
+		if ( bob.ECIES_Challenge(alice) )
+			System.out.println("ECIES: Alice successfully proved possession of their private key");
+		var fin = System.currentTimeMillis();
+		System.out.println("ECIES took "+(fin-start)+" milliseconds");
+		
 	}
 
 }
