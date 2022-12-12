@@ -43,6 +43,17 @@ public class TestRig {
 		var fin = System.currentTimeMillis();
 		System.out.println("ECIES took "+(fin-start)+" milliseconds");
 		
+		// bob and alice are busy ... here's jack and dianne
+		ECIES jack = new ECIES();
+		jack.setIdentity(jack.generateKeyPair());
+		
+		ECIES dianne = new ECIES();
+		dianne.setIdentity(dianne.generateKeyPair());
+		
+		System.out.println("Jack challenges Dianne and we get "+jack.challenge(dianne));
+
+		System.out.println("Dianne challenges Jack and we get "+dianne.challenge(jack));
+		
 	}
 
 }
